@@ -1,0 +1,84 @@
+package dev.securemessenger.di
+
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.preferencesDataStoreFile
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
+import dev.securemessenger.BuildConfig
+import dev.securemessenger.data.AccountRepository
+import dev.securemessenger.data.AuthRepository
+import dev.securemessenger.data.local.AppDatabase
+import dev.securemessenger.data.local.AppDatabaseFactory
+import dev.securemessenger.data.local.DataStoreSessionStore
+import dev.securemessenger.data.local.DraftStore
+import dev.securemessenger.data.local.KeyStoreManager
+import dev.securemessenger.data.local.SessionStore
+import dev.securemessenger.data.remote.MessengerApi
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
+import javax.inject.Singleton
+
+@Module
+@InstallIn(SingletonComponent::class)
+object AppModule {
+    @Provides
+    @Singleton
+    fun json(): Json = Json {
+        ignoreUnknownKeys = false
+        explicitNulls = false
+        encodeDefaults = true
+    }
+
+    @Provides
+    @Singleton
+    fun preferences(@ApplicationContext context: Context): DataStore<Preferences> =
+        PreferenceDataStoreFactory.create(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            produceFile = { context.preferencesDataStoreFile("secure_session") },
+        )
+
+    @Provides
+    @Singleton
+    fun keyStore(): KeyStoreManager = KeyStoreManager()
+
+    @Provides
+    @Singleton
+    fun sessions(dataStore: DataStore<Preferences>, keys: KeyStoreManager, json: Json): SessionStore =
+        DataStoreSessionStore(dataStore, keys, json)
+
+    @Provides
+    @Singleton
+    fun database(@ApplicationContext context: Context): AppDatabase = AppDatabaseFactory.create(context)
+
+    @Provides
+    @Singleton
+    fun drafts(database: AppDatabase): DraftStore = DraftStore(database)
+
+    @Provides
+    @Singleton
+    fun okHttp(): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .pingInterval(20, TimeUnit.SECONDS)
+        .build()
+
+    @Provides
+    @Singleton
+    fun api(client: OkHttpClient, json: Json): MessengerApi =
+        MessengerApi(BuildConfig.API_BASE_URL, client, json)
+
+    @Provides
+    @Singleton
+    fun accounts(api: MessengerApi, sessions: SessionStore): AccountRepository = AuthRepository(api, sessions)
+}

@@ -26,7 +26,7 @@
 - Create: `app/src/main/AndroidManifest.xml`, `server/src/main/resources/application.conf`
 - Create: `local.properties` (not committed), Gradle wrapper files
 
-**Interfaces:** Gradle собирает `:shared`, `:server`, `:app`; Android applicationId `dev.securemessenger`, compileSdk 36.1, minSdk 26.
+**Interfaces:** Gradle собирает `:shared`, `:server`, `:app`; Android applicationId `dev.securemessenger`, compileSdk 37.1, minSdk 26.
 
 - [ ] Записать version catalog и module plugins с зафиксированными версиями.
 - [ ] Создать пустой `SharedContractTest`, проверить его запуск через `:shared:test`.
@@ -157,7 +157,7 @@
 - [ ] Поднять PostgreSQL/Mailpit и server; проверить `/v1/health` через TLS.
 - [ ] Создать invite через admin API, пройти register → Mailpit code → verify → login → username search → recovery → reset → login с новым паролем через реальные вызовы.
 - [ ] Выполнить `./gradlew clean assembleDebug :shared:test :server:test :app:testDebugUnitTest`.
-- [ ] Выполнить integration tests и Android instrumented tests при доступных Docker/device.
+- [ ] Выполнить integration tests через Zonky/нативный Mailpit и Android instrumented tests при доступном device.
 - [ ] Выполнить `adb install -r app/build/outputs/apk/debug/app-debug.apk`, запустить app и проверить logcat на `FATAL EXCEPTION`/AndroidRuntime.
 - [ ] Проверить `git status`, удалить только созданные проверками ненужные artifacts и сделать final increment commit.
 
