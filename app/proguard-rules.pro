@@ -1,0 +1,2 @@
+-dontwarn org.bouncycastle.**
+-keepclassmembers class dev.securemessenger.shared.** { <fields>; }

@@ -26,7 +26,7 @@
 - Create: `app/src/main/AndroidManifest.xml`, `server/src/main/resources/application.conf`
 - Create: `local.properties` (not committed), Gradle wrapper files
 
-**Interfaces:** Gradle собирает `:shared`, `:server`, `:app`; Android applicationId `dev.private.messenger`, compileSdk 36.1, minSdk 26.
+**Interfaces:** Gradle собирает `:shared`, `:server`, `:app`; Android applicationId `dev.securemessenger`, compileSdk 36.1, minSdk 26.
 
 - [ ] Записать version catalog и module plugins с зафиксированными версиями.
 - [ ] Создать пустой `SharedContractTest`, проверить его запуск через `:shared:test`.
@@ -36,9 +36,9 @@
 ### Task 2: Shared validation and API contracts
 
 **Files:**
-- Create: `shared/src/commonMain/kotlin/dev/private/messenger/shared/Validation.kt`
-- Create: `shared/src/commonMain/kotlin/dev/private/messenger/shared/Api.kt`
-- Test: `shared/src/commonTest/kotlin/dev/private/messenger/shared/ValidationTest.kt`
+- Create: `shared/src/main/kotlin/dev/private/messenger/shared/Validation.kt`
+- Create: `shared/src/main/kotlin/dev/private/messenger/shared/Api.kt`
+- Test: `shared/src/test/kotlin/dev/private/messenger/shared/ValidationTest.kt`
 
 **Interfaces:**
 - `UsernameNormalizer.normalize(raw: String): String`
