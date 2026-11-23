@@ -37,6 +37,18 @@ class ValidationTest {
     }
 
     @Test
+    fun `normalization is independent of default locale`() {
+        val previous = java.util.Locale.getDefault()
+        try {
+            java.util.Locale.setDefault(java.util.Locale.forLanguageTag("tr-TR"))
+            assertEquals("invite_i", UsernameNormalizer.normalize("INVITE_I"))
+            assertEquals("invite_i@example.com", EmailNormalizer.normalize("INVITE_I@EXAMPLE.COM"))
+        } finally {
+            java.util.Locale.setDefault(previous)
+        }
+    }
+
+    @Test
     fun `email normalization trims and lowercases without rewriting local part semantics`() {
         assertEquals("user+tag@example.com", EmailNormalizer.normalize("  User+Tag@Example.COM "))
     }

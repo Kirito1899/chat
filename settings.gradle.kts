@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "PrivateMessenger"
-include(":app", ":server", ":shared")
+include(":app", ":server", ":shared", ":devtools")

@@ -3,10 +3,12 @@ agp = "9.2.1"
 kotlin = "2.4.20"
 ksp = "2.3.14"
 hilt = "2.60.1"
+hiltNavigation = "1.4.0"
 coroutines = "1.11.0"
 serialization = "1.13.0"
 ktor = "3.6.1"
 composeBom = "2026.11.01"
+adaptive = "1.3.0"
 coreKtx = "1.19.1"
 activityCompose = "1.13.0"
 lifecycle = "2.11.1"
@@ -23,12 +25,15 @@ springSecurityCrypto = "7.2.0"
 bouncycastle = "1.87"
 jakartaMail = "2.0.2"
 logback = "1.6.8"
-testcontainers = "1.21.4"
+commonsLogging = "1.3.5"
+zonky = "2.2.3"
+postgresBinaries = "18.7.0"
 junit = "4.13.2"
 androidxTestJunit = "1.3.0"
 
 [libraries]
 kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
+kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
 ksp-gradle-plugin = { module = "com.google.devtools.ksp:symbol-processing-gradle-plugin", version.ref = "ksp" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
@@ -52,7 +57,10 @@ spring-security-crypto = { module = "org.springframework.security:spring-securit
 bouncycastle = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 jakarta-mail = { module = "com.sun.mail:jakarta.mail", version.ref = "jakartaMail" }
 logback = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
-testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
+commons-logging = { module = "commons-logging:commons-logging", version.ref = "commonsLogging" }
+zonky-embedded-postgres = { module = "io.zonky.test:embedded-postgres", version.ref = "zonky" }
+zonky-binaries-bom = { module = "io.zonky.test.postgres:embedded-postgres-binaries-bom", version.ref = "postgresBinaries" }
+zonky-binaries-windows = { module = "io.zonky.test.postgres:embedded-postgres-binaries-windows-amd64" }
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
 core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
@@ -73,11 +81,12 @@ compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview"
 compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
 compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 compose-material3 = { module = "androidx.compose.material3:material3" }
-compose-material3-adaptive = { module = "androidx.compose.material3:material3-adaptive" }
-compose-material3-adaptive-layout = { module = "androidx.compose.material3:material3-adaptive-layout" }
+compose-material3-adaptive = { module = "androidx.compose.material3.adaptive:adaptive", version.ref = "adaptive" }
+compose-material3-adaptive-layout = { module = "androidx.compose.material3.adaptive:adaptive-layout", version.ref = "adaptive" }
 compose-material-icons = { module = "androidx.compose.material:material-icons-extended" }
 hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "hilt" }
 hilt-compiler = { module = "com.google.dagger:hilt-android-compiler", version.ref = "hilt" }
+hilt-navigation-compose = { module = "androidx.hilt:hilt-navigation-compose", version.ref = "hiltNavigation" }
 junit = { module = "junit:junit", version.ref = "junit" }
 androidx-test-junit = { module = "androidx.test.ext:junit", version.ref = "androidxTestJunit" }
 

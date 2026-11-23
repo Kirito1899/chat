@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:18.1
+    image: postgres:18.7
     restart: unless-stopped
     environment:
       POSTGRES_DB: secure_messenger
@@ -17,7 +17,7 @@ services:
       retries: 20
 
   mailpit:
-    image: axllent/mailpit:v1.29
+    image: axllent/mailpit:v1.34.0
     restart: unless-stopped
     ports:
       - "127.0.0.1:1025:1025"

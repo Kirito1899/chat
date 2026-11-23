@@ -37,6 +37,7 @@ dependencies {
     implementation(libs.flyway.postgresql)
     implementation(libs.spring.security.crypto)
     implementation(libs.bouncycastle)
+    implementation(libs.commons.logging)
     implementation(libs.jakarta.mail)
     implementation(libs.logback)
 
@@ -53,9 +54,17 @@ testing {
             useJUnitJupiter()
             dependencies {
                 implementation(project())
-                implementation(libs.testcontainers.postgresql)
+                implementation(platform(libs.zonky.binaries.bom))
+                implementation(libs.zonky.embedded.postgres) {
+                    exclude(group = "io.zonky.test.postgres", module = "embedded-postgres-binaries-linux-amd64")
+                    exclude(group = "io.zonky.test.postgres", module = "embedded-postgres-binaries-linux-amd64-alpine")
+                    exclude(group = "io.zonky.test.postgres", module = "embedded-postgres-binaries-darwin-amd64")
+                }
+                implementation(libs.zonky.binaries.windows)
+                implementation(libs.postgresql)
                 implementation(libs.ktor.client.cio)
                 implementation(libs.kotlinx.serialization.json)
+                implementation("org.jetbrains.kotlin:kotlin-test-junit5:${libs.versions.kotlin.get()}")
             }
         }
     }
