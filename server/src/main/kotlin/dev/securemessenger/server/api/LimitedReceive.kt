@@ -10,10 +10,10 @@ import kotlinx.serialization.json.Json
 
 class PayloadTooLargeException : RuntimeException("Payload too large")
 
-suspend inline fun <reified T> ApplicationCall.receiveLimited(json: Json): T {
+suspend inline fun <reified T> ApplicationCall.receiveLimited(json: Json, maxBytes: Int = MAX_JSON_BYTES): T {
     val channel = receiveChannel()
-    val bytes = channel.readRemaining(MAX_JSON_BYTES + 1L).readByteArray()
-    if (bytes.size > MAX_JSON_BYTES) {
+    val bytes = channel.readRemaining(maxBytes + 1L).readByteArray()
+    if (bytes.size > maxBytes) {
         channel.cancel(CancellationException("Payload too large"))
         throw PayloadTooLargeException()
     }

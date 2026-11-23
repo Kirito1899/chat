@@ -48,6 +48,7 @@ fun Application.installRateLimiting(clock: Clock = Clock.systemUTC()) {
                 path == "/v1/auth/register" -> 10 to Duration.ofHours(1)
                 path == "/v1/auth/login" -> 10 to Duration.ofMinutes(5)
                 path == "/v1/auth/reset" -> 10 to Duration.ofMinutes(15)
+                path.startsWith("/v1/prekey-bundles/") -> 20 to Duration.ofMinutes(5)
                 path.startsWith("/v1/admin/") -> 20 to Duration.ofMinutes(1)
                 else -> null
             }

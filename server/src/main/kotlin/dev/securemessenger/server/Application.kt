@@ -6,6 +6,15 @@ import dev.securemessenger.server.api.installRateLimiting
 import dev.securemessenger.server.api.PayloadTooLargeException
 import dev.securemessenger.server.api.RateLimitException
 import dev.securemessenger.server.api.userRoutes
+import dev.securemessenger.server.api.e2eeRoutes
+import dev.securemessenger.server.e2ee.EventsHub
+import dev.securemessenger.server.e2ee.E2eeRepository
+import dev.securemessenger.server.e2ee.JdbcE2eeRepository
+import dev.securemessenger.server.e2ee.IdentityChangeException
+import dev.securemessenger.server.e2ee.RecipientNotFoundException
+import dev.securemessenger.server.e2ee.MessageAuthorizationException
+import dev.securemessenger.server.e2ee.MessageConflictException
+import dev.securemessenger.server.auth.AuthenticatedSession
 import dev.securemessenger.server.auth.AuthService
 import dev.securemessenger.server.config.ServerConfig
 import dev.securemessenger.server.mail.SmtpMailSender
@@ -24,8 +33,9 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopping
 import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
-import io.ktor.server.auth.UserIdPrincipal
+import io.ktor.server.auth.Principal
 import io.ktor.server.auth.authenticate
+import io.ktor.server.auth.principal
 import io.ktor.server.auth.bearer
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
@@ -36,15 +46,17 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.webSocket
-import io.ktor.websocket.Frame
-import kotlinx.coroutines.channels.consumeEach
 import kotlinx.serialization.json.Json
 import org.slf4j.event.Level
 import java.time.Clock
 
+data class SessionPrincipal(val session: AuthenticatedSession) : Principal
+
 data class ApplicationDependencies(
     val authService: AuthService,
     val adminToken: String,
+    val e2eeRepository: E2eeRepository? = null,
+    val eventsHub: EventsHub = EventsHub(),
 )
 
 fun Application.module() {
@@ -68,7 +80,7 @@ fun Application.module() {
         mail = SmtpMailSender(config.smtp),
         clock = Clock.systemUTC(),
     )
-    configureApp(ApplicationDependencies(authService, config.adminToken))
+    configureApp(ApplicationDependencies(authService, config.adminToken, JdbcE2eeRepository(dataSource)))
     monitor.subscribe(ApplicationStopping) { dataSource.close() }
 }
 
@@ -87,7 +99,7 @@ fun Application.configureApp(dependencies: ApplicationDependencies) {
             realm = "secure-messenger"
             authenticate { credential ->
                 dependencies.authService.authenticateAccess(credential.token)
-                    ?.let { UserIdPrincipal(it.sessionId.toString()) }
+                    ?.let { SessionPrincipal(it) }
             }
         }
     }
@@ -108,6 +120,18 @@ fun Application.configureApp(dependencies: ApplicationDependencies) {
                 else -> HttpStatusCode.BadRequest
             }
             call.respond(status, ErrorResponse(error.code))
+        }
+        exception<IdentityChangeException> { call, _ ->
+            call.respond(HttpStatusCode.Conflict, ErrorResponse("IDENTITY_CHANGE_NOT_ALLOWED"))
+        }
+        exception<RecipientNotFoundException> { call, _ ->
+            call.respond(HttpStatusCode.NotFound, ErrorResponse("RECIPIENT_NOT_FOUND"))
+        }
+        exception<MessageAuthorizationException> { call, _ ->
+            call.respond(HttpStatusCode.Forbidden, ErrorResponse("MESSAGE_FORBIDDEN"))
+        }
+        exception<MessageConflictException> { call, _ ->
+            call.respond(HttpStatusCode.Conflict, ErrorResponse("MESSAGE_CONFLICT"))
         }
         exception<RateLimitException> { call, _ ->
             call.respond(HttpStatusCode.TooManyRequests, ErrorResponse("RATE_LIMITED"))
@@ -132,12 +156,10 @@ fun Application.configureApp(dependencies: ApplicationDependencies) {
         authRoutes(dependencies.authService)
         authenticate("access") {
             userRoutes(dependencies.authService)
+            dependencies.e2eeRepository?.let { e2eeRoutes(it, dependencies.eventsHub) }
             webSocket("/v1/events") {
-                incoming.consumeEach { frame ->
-                    if (frame is Frame.Ping) {
-                        send(Frame.Pong(frame.data))
-                    }
-                }
+                val principal = call.principal<SessionPrincipal>()!!
+                dependencies.eventsHub.listen(principal.session.deviceId, this)
             }
         }
     }

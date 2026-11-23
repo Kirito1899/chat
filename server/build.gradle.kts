@@ -54,6 +54,7 @@ testing {
             useJUnitJupiter()
             dependencies {
                 implementation(project())
+                implementation(project(":shared"))
                 implementation(platform(libs.zonky.binaries.bom))
                 implementation(libs.zonky.embedded.postgres) {
                     exclude(group = "io.zonky.test.postgres", module = "embedded-postgres-binaries-linux-amd64")

@@ -3,6 +3,11 @@ package dev.securemessenger.data
 import dev.securemessenger.data.local.SessionStore
 import dev.securemessenger.data.remote.ApiException
 import dev.securemessenger.data.remote.MessengerApi
+import dev.securemessenger.shared.DeliveredMessagesResponse
+import dev.securemessenger.shared.DeviceKeysUpload
+import dev.securemessenger.shared.MessageListResponse
+import dev.securemessenger.shared.PreKeyBundleResponse
+import dev.securemessenger.shared.SendMessageRequest
 import dev.securemessenger.shared.EmailCodeRequest
 import dev.securemessenger.shared.LoginRequest
 import dev.securemessenger.shared.LogoutRequest
@@ -69,6 +74,28 @@ class AuthRepository(
             }
         } finally {
             sessions.clear()
+        }
+    }
+
+    suspend fun uploadKeys(request: DeviceKeysUpload) = authorized { api.uploadKeys(request, it) }
+
+    suspend fun fetchPreKeyBundle(username: String): PreKeyBundleResponse = authorized { api.fetchPreKeyBundle(username, it) }
+
+    suspend fun sendMessage(request: SendMessageRequest) = authorized { api.sendMessage(request, it) }
+
+    suspend fun fetchMessages(): MessageListResponse = authorized { api.fetchMessages(it) }
+
+    suspend fun markDelivered(messageId: String) = authorized { api.markDelivered(messageId, it) }
+
+    suspend fun fetchDelivered(): DeliveredMessagesResponse = authorized { api.fetchDelivered(it) }
+
+    private suspend fun <T> authorized(block: suspend (String) -> T): T {
+        val session = sessions.read() ?: throw ApiException("INVALID_CREDENTIALS", 401)
+        return try {
+            block(session.accessToken)
+        } catch (error: ApiException) {
+            if (error.httpStatus != 401) throw error
+            block(refresh().accessToken)
         }
     }
 

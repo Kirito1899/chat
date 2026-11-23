@@ -18,6 +18,8 @@ room = "2.8.5"
 window = "1.5.1"
 okhttp = "5.5.1"
 sqlcipher = "4.20.0"
+libsignal = "0.86.5"
+desugar = "2.1.5"
 hikari = "7.1.0"
 postgres = "42.7.14"
 flyway = "13.13.0"
@@ -75,6 +77,9 @@ window = { module = "androidx.window:window", version.ref = "window" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 mockwebserver = { module = "com.squareup.okhttp3:mockwebserver", version.ref = "okhttp" }
 sqlcipher = { module = "net.zetetic:sqlcipher-android", version.ref = "sqlcipher" }
+libsignal-android = { module = "org.signal:libsignal-android", version.ref = "libsignal" }
+libsignal-client = { module = "org.signal:libsignal-client", version.ref = "libsignal" }
+desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugar" }
 compose-ui = { module = "androidx.compose.ui:ui" }
 compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.window.core.layout.WindowSizeClass
+import dev.securemessenger.data.local.MessageEntity
 import dev.securemessenger.shared.TokenResponse
 import dev.securemessenger.shared.UserResponse
 
@@ -66,6 +68,8 @@ fun AdaptiveApp() {
                 chatsViewModel.reset()
                 authViewModel.logout()
             },
+            messages = chatsState.messages,
+            onSend = { chatsViewModel.sendCurrentDraft() },
         )
     } else {
         AuthScreens(authState, authViewModel)
@@ -88,6 +92,8 @@ fun HomeLayout(
     onCloseChat: () -> Unit,
     onDraftChange: (String) -> Unit,
     onLogout: () -> Unit,
+    messages: List<MessageEntity> = emptyList(),
+    onSend: (String) -> Unit = {},
 ) {
     if (isWide) {
         Row(Modifier.fillMaxSize()) {
@@ -106,7 +112,7 @@ fun HomeLayout(
                 if (selectedChat == null) {
                     EmptyChat()
                 } else {
-                    ChatDetail(selectedChat, draft, fold, false, onCloseChat, onDraftChange)
+                    ChatDetail(selectedChat, draft, fold, false, onCloseChat, onDraftChange, messages, onSend)
                 }
             }
         }
@@ -124,7 +130,7 @@ fun HomeLayout(
         )
     } else {
         Box(Modifier.testTag("chat_detail")) {
-            ChatDetail(selectedChat, draft, fold, true, onCloseChat, onDraftChange)
+            ChatDetail(selectedChat, draft, fold, true, onCloseChat, onDraftChange, messages, onSend)
         }
     }
 }
@@ -191,6 +197,8 @@ private fun ChatDetail(
     showBack: Boolean,
     onBack: () -> Unit,
     onDraftChange: (String) -> Unit,
+    messages: List<MessageEntity>,
+    onSend: (String) -> Unit,
 ) {
     if (showBack) BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().imePadding()) {
@@ -201,17 +209,17 @@ private fun ChatDetail(
         HorizontalDivider()
         if (fold.halfOpened && fold.horizontal) {
             Box(Modifier.weight(1f).fillMaxWidth().testTag("flex_content")) {
-                MessageHistory()
+                MessageHistory(messages)
             }
             HorizontalDivider()
             Box(Modifier.weight(1f).fillMaxWidth().testTag("flex_input")) {
-                Composer(draft, onDraftChange)
+                Composer(draft, onDraftChange, onSend)
             }
         } else {
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                MessageHistory()
+                MessageHistory(messages)
             }
-            Composer(draft, onDraftChange)
+            Composer(draft, onDraftChange, onSend)
         }
     }
 }

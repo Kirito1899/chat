@@ -21,6 +21,7 @@ object AppDatabaseFactory {
         val passphrase = Base64.getDecoder().decode(keys.decrypt(encrypted))
         return Room.databaseBuilder(context, AppDatabase::class.java, name)
             .openHelperFactory(SupportOpenHelperFactory(passphrase))
+            .addMigrations(MIGRATION_1_2)
             .build()
     }
 }

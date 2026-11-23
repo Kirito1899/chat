@@ -1,5 +1,11 @@
 package dev.securemessenger.data.remote
 
+import dev.securemessenger.shared.DeliveredMessagesResponse
+import dev.securemessenger.shared.DeliveryResponse
+import dev.securemessenger.shared.DeviceKeysUpload
+import dev.securemessenger.shared.MessageListResponse
+import dev.securemessenger.shared.PreKeyBundleResponse
+import dev.securemessenger.shared.SendMessageRequest
 import dev.securemessenger.shared.EmailCodeRequest
 import dev.securemessenger.shared.ErrorResponse
 import dev.securemessenger.shared.LoginRequest
@@ -70,6 +76,32 @@ class MessengerApi(
         return decode(execute(request))
     }
 
+    suspend fun uploadKeys(request: DeviceKeysUpload, accessToken: String) {
+        execute(secureRequest("PUT", "/v1/devices/keys", request, accessToken))
+    }
+
+    suspend fun fetchPreKeyBundle(username: String, accessToken: String): PreKeyBundleResponse =
+        decode(execute(secureGet("/v1/prekey-bundles/by-username/$username", accessToken)))
+
+    suspend fun sendMessage(request: SendMessageRequest, accessToken: String): DeliveryResponse =
+        decode(execute(secureRequest("POST", "/v1/messages", request, accessToken)))
+
+    suspend fun fetchMessages(accessToken: String): MessageListResponse =
+        decode(execute(secureGet("/v1/messages", accessToken)))
+
+    suspend fun markDelivered(messageId: String, accessToken: String) {
+        execute(
+            Request.Builder()
+                .url(baseUrl.toHttpUrl().newBuilder().addPathSegments("v1/messages/$messageId/delivered").build())
+                .header("Authorization", "Bearer $accessToken")
+                .post("{}".toRequestBody("application/json".toMediaType()))
+                .build(),
+        )
+    }
+
+    suspend fun fetchDelivered(accessToken: String): DeliveredMessagesResponse =
+        decode(execute(secureGet("/v1/messages/delivered", accessToken)))
+
     private suspend fun execute(request: Request): String = withContext(Dispatchers.IO) {
         client.newCall(request).execute().use { response ->
             val body = response.body.string()
@@ -81,6 +113,21 @@ class MessengerApi(
             body
         }
     }
+
+    private inline fun <reified T> secureRequest(method: String, path: String, value: T, accessToken: String): Request {
+        val body = json.encodeToString(value).toRequestBody("application/json".toMediaType())
+        return Request.Builder()
+            .url(baseUrl.toHttpUrl().newBuilder().addPathSegments(path.trimStart('/')).build())
+            .header("Authorization", "Bearer $accessToken")
+            .method(method, body)
+            .build()
+    }
+
+    private fun secureGet(path: String, accessToken: String): Request = Request.Builder()
+        .url(baseUrl.toHttpUrl().newBuilder().addPathSegments(path.trimStart('/')).build())
+        .header("Authorization", "Bearer $accessToken")
+        .get()
+        .build()
 
     private inline fun <reified T> post(path: String, value: T): Request {
         val body = json.encodeToString(value).toRequestBody("application/json".toMediaType())

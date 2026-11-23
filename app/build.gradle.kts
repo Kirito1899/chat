@@ -30,6 +30,7 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -57,6 +58,7 @@ kotlin {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(project(":shared"))
     implementation(platform(libs.compose.bom))
     implementation(libs.core.ktx)
@@ -71,6 +73,8 @@ dependencies {
     implementation(libs.window)
     implementation(libs.okhttp)
     implementation(libs.sqlcipher)
+    implementation(libs.libsignal.android)
+    implementation(libs.libsignal.client)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.compose.ui)

@@ -11,6 +11,10 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.securemessenger.BuildConfig
+import dev.securemessenger.data.MessageRepository
+import dev.securemessenger.data.e2ee.E2eeManager
+import dev.securemessenger.data.e2ee.PersistentSignalStore
+import dev.securemessenger.data.e2ee.PreKeyFactory
 import dev.securemessenger.data.AccountRepository
 import dev.securemessenger.data.AuthRepository
 import dev.securemessenger.data.local.AppDatabase
@@ -26,6 +30,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
+import org.signal.libsignal.protocol.IdentityKeyPair
+import org.signal.libsignal.protocol.util.KeyHelper
 import javax.inject.Singleton
 
 @Module
@@ -80,5 +86,39 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun accounts(api: MessengerApi, sessions: SessionStore): AccountRepository = AuthRepository(api, sessions)
+    fun authRepository(api: MessengerApi, sessions: SessionStore): AuthRepository = AuthRepository(api, sessions)
+
+    @Provides
+    @Singleton
+    fun accounts(repository: AuthRepository): AccountRepository = repository
+
+    @Provides
+    @Singleton
+    fun signalStore(database: AppDatabase): PersistentSignalStore = PersistentSignalStore(
+        database,
+        IdentityKeyPair.generate(),
+        KeyHelper.generateRegistrationId(false),
+    )
+
+    @Provides
+    @Singleton
+    fun preKeyFactory(): PreKeyFactory = PreKeyFactory()
+
+    @Provides
+    @Singleton
+    fun e2eeManager(
+        store: PersistentSignalStore,
+        accounts: AuthRepository,
+        preKeyFactory: PreKeyFactory,
+        json: Json,
+    ): E2eeManager = E2eeManager(store, accounts, preKeyFactory, json)
+
+    @Provides
+    @Singleton
+    fun messages(
+        database: AppDatabase,
+        e2ee: E2eeManager,
+        accounts: AuthRepository,
+        json: Json,
+    ): MessageRepository = MessageRepository(database, e2ee, accounts, json)
 }
