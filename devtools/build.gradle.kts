@@ -19,6 +19,12 @@ application {
     mainClass.set("dev.securemessenger.devtools.DevPostgresKt")
 }
 
+tasks.register<JavaExec>("verifyCiphertext") {
+    group = "verification"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("dev.securemessenger.devtools.VerifyCiphertextKt")
+}
+
 dependencies {
     implementation(platform(libs.zonky.binaries.bom))
     implementation(libs.zonky.embedded.postgres) {

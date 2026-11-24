@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -24,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -50,7 +52,13 @@ fun AdaptiveApp() {
     val session = authState.session
 
     Surface(Modifier.fillMaxSize()) {
-    if (authState.destination == AuthDestination.CHATS && session != null) {
+    if (chatsState.safetyNumber != null) {
+        SafetyNumberScreen(
+            safetyNumber = chatsState.safetyNumber!!,
+            onBack = chatsViewModel::closeSafetyNumber,
+            onConfirm = chatsViewModel::acceptSafetyNumber,
+        )
+    } else if (authState.destination == AuthDestination.CHATS && session != null) {
         HomeLayout(
             isWide = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND),
             fold = fold,
@@ -70,6 +78,7 @@ fun AdaptiveApp() {
             },
             messages = chatsState.messages,
             onSend = { chatsViewModel.sendCurrentDraft() },
+            onOpenSafety = chatsViewModel::openSafetyNumber,
         )
     } else {
         AuthScreens(authState, authViewModel)
@@ -94,6 +103,7 @@ fun HomeLayout(
     onLogout: () -> Unit,
     messages: List<MessageEntity> = emptyList(),
     onSend: (String) -> Unit = {},
+    onOpenSafety: () -> Unit = {},
 ) {
     if (isWide) {
         Row(Modifier.fillMaxSize()) {
@@ -112,7 +122,7 @@ fun HomeLayout(
                 if (selectedChat == null) {
                     EmptyChat()
                 } else {
-                    ChatDetail(selectedChat, draft, fold, false, onCloseChat, onDraftChange, messages, onSend)
+                    ChatDetail(selectedChat, draft, fold, false, onCloseChat, onDraftChange, messages, onSend, error == "IDENTITY_CHANGED", onOpenSafety)
                 }
             }
         }
@@ -130,7 +140,7 @@ fun HomeLayout(
         )
     } else {
         Box(Modifier.testTag("chat_detail")) {
-            ChatDetail(selectedChat, draft, fold, true, onCloseChat, onDraftChange, messages, onSend)
+            ChatDetail(selectedChat, draft, fold, true, onCloseChat, onDraftChange, messages, onSend, error == "IDENTITY_CHANGED", onOpenSafety)
         }
     }
 }
@@ -199,12 +209,17 @@ private fun ChatDetail(
     onDraftChange: (String) -> Unit,
     messages: List<MessageEntity>,
     onSend: (String) -> Unit,
+    identityChanged: Boolean,
+    onOpenSafety: () -> Unit,
 ) {
     if (showBack) BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             if (showBack) TextButton(onClick = onBack) { Text("Назад") }
             Text("@${chat.username}", style = MaterialTheme.typography.titleLarge)
+        }
+        TextButton(onClick = onOpenSafety, modifier = Modifier.testTag("open_safety")) {
+            Text(if (identityChanged) "Ключ изменился. Проверить safety number" else "Проверить safety number")
         }
         HorizontalDivider()
         if (fold.halfOpened && fold.horizontal) {
@@ -225,17 +240,58 @@ private fun ChatDetail(
 }
 
 @Composable
-private fun MessageHistory() {
-    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-        Text(
-            "Сообщения пока не отправляются. Отправка будет включена только после E2EE-приращения.",
-            style = MaterialTheme.typography.bodyMedium,
-        )
+private fun MessageHistory(messages: List<MessageEntity>) {
+    if (messages.isEmpty()) {
+        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Text("Сообщений пока нет", style = MaterialTheme.typography.bodyMedium)
+        }
+        return
+    }
+    val listState = rememberLazyListState()
+    val latestOutgoingId = messages.lastOrNull { it.outgoing }?.messageId
+    LaunchedEffect(messages.size) {
+        listState.animateScrollToItem(messages.lastIndex)
+    }
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(messages, key = { it.messageId }) { message ->
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = if (message.outgoing) Alignment.End else Alignment.Start,
+            ) {
+                Card {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            message.body,
+                            modifier = Modifier.testTag(
+                                when {
+                                    !message.outgoing -> "incoming_message_body"
+                                    message.messageId == latestOutgoingId -> "latest_outgoing_body"
+                                    else -> "outgoing_message_body"
+                                },
+                            ),
+                        )
+                        if (message.outgoing) {
+                            Text(
+                                message.status,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.testTag(
+                                    if (message.messageId == latestOutgoingId) "latest_outgoing_status" else "message_status",
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun Composer(draft: String, onDraftChange: (String) -> Unit) {
+private fun Composer(draft: String, onDraftChange: (String) -> Unit, onSend: (String) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
         OutlinedTextField(
             value = draft,
@@ -244,7 +300,11 @@ private fun Composer(draft: String, onDraftChange: (String) -> Unit) {
             modifier = Modifier.weight(1f).testTag("message_input"),
             maxLines = 4,
         )
-        Button(onClick = {}, enabled = false, modifier = Modifier.padding(start = 8.dp)) {
+        Button(
+            onClick = { onSend(draft) },
+            enabled = draft.isNotBlank(),
+            modifier = Modifier.padding(start = 8.dp).testTag("send_button"),
+        ) {
             Text("Отправить")
         }
     }

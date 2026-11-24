@@ -98,9 +98,11 @@ private fun SignedPreKeyDto.validate() {
 
 private fun KyberPreKeyDto.validate() {
     requireValid(id in 1..0xFFFFFF, "INVALID_PREKEY_ID")
-    publicKey.decodeKey(1568)
+    publicKey.decodeKey(SERIALIZED_KYBER_1024_PUBLIC_KEY_SIZE)
     signature.decodeKey(64)
 }
+
+private const val SERIALIZED_KYBER_1024_PUBLIC_KEY_SIZE = 1569
 
 private fun requireValid(condition: Boolean, code: String) {
     if (!condition) throw ValidationException(code)

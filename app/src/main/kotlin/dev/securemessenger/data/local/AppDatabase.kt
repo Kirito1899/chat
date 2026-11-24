@@ -9,6 +9,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
+import dev.securemessenger.data.e2ee.SignalSchema
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
@@ -59,6 +60,9 @@ interface MessageDao {
     @Query("UPDATE messages SET status = 'DELIVERED' WHERE messageId = :messageId AND status != 'READ'")
     suspend fun markDelivered(messageId: String)
 
+    @Query("UPDATE messages SET status = :status WHERE messageId = :messageId AND chatId = :chatId")
+    suspend fun updateStatusInChat(messageId: String, chatId: String, status: String)
+
     @Query("UPDATE messages SET status = :status WHERE messageId = :messageId")
     suspend fun updateStatus(messageId: String, status: String)
 }
@@ -94,11 +98,6 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         db.execSQL("CREATE TABLE IF NOT EXISTS messages(messageId TEXT NOT NULL PRIMARY KEY, chatId TEXT NOT NULL, body TEXT NOT NULL, outgoing INTEGER NOT NULL, createdAt INTEGER NOT NULL, status TEXT NOT NULL)")
         db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_chatId ON messages(chatId)")
         db.execSQL("CREATE TABLE IF NOT EXISTS outbox(messageId TEXT NOT NULL PRIMARY KEY, requestJson TEXT NOT NULL, createdAt INTEGER NOT NULL)")
-        db.execSQL("CREATE TABLE IF NOT EXISTS signal_local(key TEXT NOT NULL PRIMARY KEY, value BLOB NOT NULL)")
-        db.execSQL("CREATE TABLE IF NOT EXISTS signal_identities(name TEXT NOT NULL, device_id INTEGER NOT NULL, identity BLOB NOT NULL, verified INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(name, device_id))")
-        db.execSQL("CREATE TABLE IF NOT EXISTS signal_sessions(name TEXT NOT NULL, device_id INTEGER NOT NULL, record BLOB NOT NULL, PRIMARY KEY(name, device_id))")
-        db.execSQL("CREATE TABLE IF NOT EXISTS signal_prekeys(kind TEXT NOT NULL, key_id INTEGER NOT NULL, record BLOB NOT NULL, PRIMARY KEY(kind, key_id))")
-        db.execSQL("CREATE TABLE IF NOT EXISTS signal_kyber_used(key_id INTEGER NOT NULL, signed_id INTEGER NOT NULL, base_key BLOB NOT NULL, PRIMARY KEY(key_id, signed_id, base_key))")
-        db.execSQL("CREATE TABLE IF NOT EXISTS signal_sender_keys(name TEXT NOT NULL, device_id INTEGER NOT NULL, distribution_id TEXT NOT NULL, record BLOB NOT NULL, PRIMARY KEY(name, device_id, distribution_id))")
+        SignalSchema.create(db)
     }
 }

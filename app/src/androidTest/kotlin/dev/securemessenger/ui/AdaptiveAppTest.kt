@@ -1,14 +1,23 @@
 package dev.securemessenger.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import dev.securemessenger.data.local.MessageEntity
 import dev.securemessenger.shared.TokenResponse
 import dev.securemessenger.shared.UserResponse
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
+import org.junit.runner.RunWith
 import java.util.UUID
 import kotlin.test.Test
+import kotlin.test.assertEquals
 
+@RunWith(AndroidJUnit4::class)
 class AdaptiveAppTest {
     @get:Rule
     val compose = createComposeRule()
@@ -70,4 +79,84 @@ class AdaptiveAppTest {
         compose.onNodeWithTag("flex_input").assertIsDisplayed()
         compose.onNodeWithTag("message_input").assertIsDisplayed()
     }
+
+    @Test
+    fun message_history_displays_incoming_and_outgoing_messages() {
+        val messages = listOf(
+            message(id = "incoming", body = "Входящее сообщение", outgoing = false, status = "DELIVERED"),
+            message(id = "outgoing", body = "Исходящее сообщение", outgoing = true, status = "SENT"),
+        )
+
+        showChat(messages = messages)
+
+        compose.onNodeWithText("Входящее сообщение").assertIsDisplayed()
+        compose.onNodeWithText("Исходящее сообщение").assertIsDisplayed()
+    }
+
+    @Test
+    fun message_history_displays_all_outgoing_delivery_statuses() {
+        val statuses = listOf("PENDING", "SENT", "DELIVERED", "READ")
+        val messages = statuses.map { status ->
+            message(id = status, body = "Сообщение $status", outgoing = true, status = status)
+        }
+
+        showChat(messages = messages)
+
+        statuses.forEach { status ->
+            compose.onNodeWithText("Сообщение $status").assertIsDisplayed()
+            compose.onNodeWithText(status).assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun composer_enables_send_for_nonblank_draft_and_sends_it() {
+        var sentDraft: String? = null
+        showChat(draft = "  Сообщение  ", onSend = { sentDraft = it })
+
+        compose.onNodeWithTag("send_button").assertIsEnabled().performClick()
+
+        assertEquals("  Сообщение  ", sentDraft)
+    }
+
+    @Test
+    fun composer_disables_send_for_blank_draft() {
+        showChat(draft = " \n\t ")
+
+        compose.onNodeWithTag("send_button").assertIsNotEnabled()
+    }
+
+    private fun showChat(
+        draft: String = "",
+        messages: List<MessageEntity> = emptyList(),
+        onSend: (String) -> Unit = {},
+    ) {
+        compose.setContent {
+            HomeLayout(
+                isWide = false,
+                fold = FoldState(),
+                session = session,
+                searchResult = null,
+                selectedChat = chat,
+                draft = draft,
+                busy = false,
+                error = null,
+                onSearch = {},
+                onSelect = {},
+                onCloseChat = {},
+                onDraftChange = {},
+                onLogout = {},
+                messages = messages,
+                onSend = onSend,
+            )
+        }
+    }
+
+    private fun message(id: String, body: String, outgoing: Boolean, status: String) = MessageEntity(
+        messageId = id,
+        chatId = chat.accountId,
+        body = body,
+        outgoing = outgoing,
+        createdAt = 1L,
+        status = status,
+    )
 }

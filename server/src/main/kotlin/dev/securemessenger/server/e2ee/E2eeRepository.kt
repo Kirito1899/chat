@@ -39,7 +39,7 @@ class JdbcE2eeRepository(private val dataSource: DataSource) : E2eeRepository {
         upload.validate()
         dataSource.transaction { connection ->
             val owner = connection.queryOne(
-                "SELECT account_id FROM devices WHERE id = ? AND revoked_at IS NULL",
+                "SELECT account_id FROM devices WHERE id = ? AND revoked_at IS NULL FOR UPDATE",
                 { it.getObject(1, UUID::class.java) },
                 deviceId,
             )
@@ -157,6 +157,13 @@ class JdbcE2eeRepository(private val dataSource: DataSource) : E2eeRepository {
         val ciphertext = request.ciphertext.decode()
         dataSource.transaction { connection ->
             connection.execute("DELETE FROM message_queue WHERE expires_at <= now()")
+            val senderAuthorized = connection.queryOne(
+                "SELECT 1 FROM devices WHERE id = ? AND account_id = ? AND revoked_at IS NULL",
+                { it.getInt(1) },
+                senderDeviceId,
+                senderAccountId,
+            ) != null
+            if (!senderAuthorized) throw MessageAuthorizationException()
             val recipientExists = connection.queryOne(
                 "SELECT 1 FROM devices WHERE id = ? AND revoked_at IS NULL",
                 { it.getInt(1) },

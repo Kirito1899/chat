@@ -22,6 +22,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = providers.gradleProperty("CLIENT_SUFFIX").orNull
+            isMinifyEnabled = false
+            isShrinkResources = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -75,6 +81,7 @@ dependencies {
     implementation(libs.sqlcipher)
     implementation(libs.libsignal.android)
     implementation(libs.libsignal.client)
+    implementation(libs.zxing.core)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.compose.ui)

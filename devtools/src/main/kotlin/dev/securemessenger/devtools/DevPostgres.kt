@@ -5,7 +5,8 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 fun main() {
-    val dataDirectory = Path.of(".local", "postgres-data")
+    val root = System.getenv("DEV_PROJECT_ROOT") ?: error("DEV_PROJECT_ROOT is required")
+    val dataDirectory = Path.of(root, ".local", "postgres-data")
     Files.createDirectories(dataDirectory)
     val password = System.getenv("DATABASE_PASSWORD") ?: error("DATABASE_PASSWORD is required")
     require(password.matches(Regex("[0-9a-f]{64}"))) { "Dev DATABASE_PASSWORD must be a generated 64-character hex value" }

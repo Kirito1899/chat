@@ -17,11 +17,14 @@ import dev.securemessenger.shared.RegisterRequest
 import dev.securemessenger.shared.TokenResponse
 import dev.securemessenger.shared.UserResponse
 import dev.securemessenger.shared.UsernameNormalizer
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class AuthRepository(
     private val api: MessengerApi,
     private val sessions: SessionStore,
 ) : AccountRepository {
+    private val refreshMutex = Mutex()
     override suspend fun restore(): TokenResponse? = sessions.read()
 
     override suspend fun register(invite: String, email: String, username: String, password: String) =
@@ -51,14 +54,7 @@ class AuthRepository(
 
     override suspend fun searchByUsername(username: String): UserResponse {
         val normalized = UsernameNormalizer.normalize(username)
-        val session = sessions.read() ?: throw ApiException("INVALID_CREDENTIALS", 401)
-        return try {
-            api.findByUsername(normalized, session.accessToken)
-        } catch (error: ApiException) {
-            if (error.httpStatus != 401) throw error
-            val rotated = refresh()
-            api.findByUsername(normalized, rotated.accessToken)
-        }
+        return authorized { api.findByUsername(normalized, it) }
     }
 
     override suspend fun logout() {
@@ -95,13 +91,14 @@ class AuthRepository(
             block(session.accessToken)
         } catch (error: ApiException) {
             if (error.httpStatus != 401) throw error
-            block(refresh().accessToken)
+            block(refresh(session.accessToken).accessToken)
         }
     }
 
-    private suspend fun refresh(): TokenResponse {
+    private suspend fun refresh(failedAccessToken: String): TokenResponse = refreshMutex.withLock {
         val current = sessions.read() ?: throw ApiException("INVALID_CREDENTIALS", 401)
-        return try {
+        if (current.accessToken != failedAccessToken) return@withLock current
+        try {
             api.refresh(RefreshRequest(current.refreshToken)).also { sessions.save(it) }
         } catch (error: ApiException) {
             if (error.httpStatus == 401) sessions.clear()

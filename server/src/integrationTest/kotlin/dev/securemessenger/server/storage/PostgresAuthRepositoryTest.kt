@@ -2,6 +2,7 @@ package dev.securemessenger.server.storage
 
 import dev.securemessenger.server.auth.AccountRecord
 import dev.securemessenger.server.auth.ChallengePurpose
+import dev.securemessenger.server.auth.DeviceLimitException
 import dev.securemessenger.server.auth.DuplicateAccountException
 import dev.securemessenger.server.auth.RefreshStatus
 import io.zonky.test.db.postgres.embedded.EmbeddedPostgres
@@ -131,6 +132,85 @@ class PostgresAuthRepositoryTest {
             now,
         )
         assertNotNull(repository.findActiveSessionByAccess("access-recovered", now))
+    }
+
+    @Test
+    fun `same device can log in again after logout without enabling another device`() {
+        val account = verifiedAccount("relogin")
+        val now = Instant.now()
+        val device = UUID.randomUUID()
+        repository.createSession(
+            account.id,
+            device,
+            "access-before-logout",
+            "refresh-before-logout",
+            now + Duration.ofMinutes(15),
+            now + Duration.ofDays(30),
+            now,
+        )
+        repository.revokeByRefresh("refresh-before-logout")
+
+        repository.createSession(
+            account.id,
+            device,
+            "access-after-logout",
+            "refresh-after-logout",
+            now + Duration.ofMinutes(15),
+            now + Duration.ofDays(30),
+            now,
+        )
+
+        assertNull(repository.findActiveSessionByAccess("access-before-logout", now))
+        assertEquals(device, repository.findActiveSessionByAccess("access-after-logout", now)?.deviceId)
+        assertFailsWith<DeviceLimitException> {
+            repository.createSession(
+                account.id,
+                UUID.randomUUID(),
+                "access-other-device",
+                "refresh-other-device",
+                now + Duration.ofMinutes(15),
+                now + Duration.ofDays(30),
+                now,
+            )
+        }
+    }
+
+    @Test
+    fun `device identifier cannot be reassigned from a revoked foreign account`() {
+        val owner = verifiedAccount("device_owner")
+        val other = verifiedAccount("device_other")
+        val now = Instant.now()
+        val device = UUID.randomUUID()
+        repository.createSession(
+            owner.id,
+            device,
+            "access-owner",
+            "refresh-owner",
+            now + Duration.ofMinutes(15),
+            now + Duration.ofDays(30),
+            now,
+        )
+        repository.replaceChallenge(
+            owner.id,
+            ChallengePurpose.PASSWORD_RECOVERY,
+            "device-recovery-code",
+            now,
+            now + Duration.ofMinutes(10),
+        )
+        assertTrue(repository.resetPasswordWithChallenge(owner.email, "device-recovery-code", "changed", now))
+
+        assertFailsWith<DeviceLimitException> {
+            repository.createSession(
+                other.id,
+                device,
+                "access-foreign-device",
+                "refresh-foreign-device",
+                now + Duration.ofMinutes(15),
+                now + Duration.ofDays(30),
+                now,
+            )
+        }
+        assertNull(repository.findActiveSessionByAccess("access-foreign-device", now))
     }
 
     private fun newAccount(suffix: String): AccountRecord = AccountRecord(

@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+export DEV_PROJECT_ROOT="$ROOT"
 bash scripts/generate-dev-tls.sh
 mkdir -p .local
 

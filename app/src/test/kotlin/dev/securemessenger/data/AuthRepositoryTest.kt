@@ -3,14 +3,27 @@ package dev.securemessenger.data
 import dev.securemessenger.data.local.SessionStore
 import dev.securemessenger.data.remote.ApiException
 import dev.securemessenger.data.remote.MessengerApi
+import dev.securemessenger.shared.DeliveryResponse
+import dev.securemessenger.shared.SendMessageRequest
 import dev.securemessenger.shared.TokenResponse
 import dev.securemessenger.shared.UserResponse
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
+import java.util.Base64
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -71,6 +84,60 @@ class AuthRepositoryTest {
         assertTrue(refresh.url.encodedPath.endsWith("/v1/auth/refresh"))
         val retry = server.takeRequest()
         assertEquals("Bearer access-new", retry.headers["Authorization"])
+    }
+
+    @Test
+    fun `concurrent authorized retries share one refresh`() = runTest {
+        sessions.stored = tokens("expired-access", "refresh-old")
+        val rotated = tokens("access-new", "refresh-new")
+        val otherRotation = tokens("access-other", "refresh-other")
+        val initialRequests = CountDownLatch(2)
+        val refreshAttempts = AtomicInteger()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            when {
+                request.header("Authorization") == "Bearer expired-access" -> {
+                    initialRequests.countDown()
+                    check(initialRequests.await(5, TimeUnit.SECONDS)) { "Concurrent requests did not arrive" }
+                    chain.proceed(request)
+                }
+                request.url.encodedPath.endsWith("/v1/auth/refresh") -> {
+                    if (refreshAttempts.incrementAndGet() == 1) {
+                        val response = chain.proceed(request)
+                        Thread.sleep(250)
+                        response
+                    } else {
+                        Response.Builder()
+                            .request(request)
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(200)
+                            .message("OK")
+                            .body(json.encodeToString(otherRotation).toResponseBody("application/json".toMediaType()))
+                            .build()
+                    }
+                }
+                else -> chain.proceed(request)
+            }
+        }.build()
+        repository = AuthRepository(MessengerApi(server.url("/").toString(), client), sessions)
+        val messageId = UUID.randomUUID().toString()
+        val request = SendMessageRequest(
+            messageId = messageId,
+            recipientDeviceId = UUID.randomUUID().toString(),
+            ciphertextType = 2,
+            ciphertext = Base64.getEncoder().encodeToString(byteArrayOf(1, 2, 3)),
+        )
+        repeat(2) { server.enqueue(jsonResponse("""{"code":"INVALID_CREDENTIALS"}""", 401)) }
+        server.enqueue(jsonResponse(json.encodeToString(rotated)))
+        repeat(2) { server.enqueue(jsonResponse(json.encodeToString(DeliveryResponse(messageId, false)), 202)) }
+
+        val results = List(2) {
+            async(Dispatchers.Default) { repository.sendMessage(request) }
+        }.awaitAll()
+
+        assertEquals(List(2) { DeliveryResponse(messageId, false) }, results)
+        assertEquals(1, refreshAttempts.get())
+        assertEquals(rotated, sessions.stored)
     }
 
     @Test

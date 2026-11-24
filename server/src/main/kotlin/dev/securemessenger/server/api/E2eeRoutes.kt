@@ -10,6 +10,7 @@ import dev.securemessenger.shared.ErrorResponse
 import dev.securemessenger.shared.MessageListResponse
 import dev.securemessenger.shared.SendMessageRequest
 import dev.securemessenger.shared.UsernameNormalizer
+import dev.securemessenger.shared.ValidationException
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.auth.principal
 import io.ktor.server.response.respond
@@ -38,7 +39,7 @@ fun Route.e2eeRoutes(repository: E2eeRepository, events: EventsHub) {
     }
     post("/v1/messages") {
         val principal = call.principal<SessionPrincipal>()!!
-        val request = call.receiveLimited<SendMessageRequest>(Json)
+        val request = call.receiveLimited<SendMessageRequest>(Json, 64 * 1024)
         repository.enqueue(principal.session.accountId, principal.session.deviceId, request)
         events.notify(UUID.fromString(request.recipientDeviceId), "SYNC")
         call.respond(HttpStatusCode.Accepted, DeliveryResponse(request.messageId, false))
@@ -53,7 +54,7 @@ fun Route.e2eeRoutes(repository: E2eeRepository, events: EventsHub) {
     }
     post("/v1/messages/{id}/delivered") {
         val principal = call.principal<SessionPrincipal>()!!
-        val messageId = UUID.fromString(call.parameters["id"])
+        val messageId = parseUuid(call.parameters["id"])
         repository.markDelivered(messageId, principal.session.deviceId)
         repository.deliveredSenderDevice(messageId, principal.session.deviceId)?.let {
             events.notify(it, "DELIVERED")
@@ -61,3 +62,7 @@ fun Route.e2eeRoutes(repository: E2eeRepository, events: EventsHub) {
         call.respond(DeliveryResponse(messageId.toString(), true))
     }
 }
+
+private fun parseUuid(raw: String?): UUID =
+    raw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+        ?: throw ValidationException("INVALID_UUID")

@@ -110,6 +110,7 @@ fun Application.configureApp(dependencies: ApplicationDependencies) {
     }
     install(StatusPages) {
         exception<ValidationException> { call, error ->
+            call.application.environment.log.info("Request validation failed: {}", error.code)
             call.respond(HttpStatusCode.BadRequest, ErrorResponse(error.code))
         }
         exception<dev.securemessenger.server.auth.AuthException> { call, error ->

@@ -1,8 +1,10 @@
 package dev.securemessenger.ui
 
+import android.os.Build
+import android.view.WindowManager
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -26,6 +28,7 @@ class RealAccountFlowTest {
         val password = arguments.getString("password") ?: error("password instrumentation argument is required")
         val username = arguments.getString("username") ?: error("username instrumentation argument is required")
 
+        keepScreenOn()
         compose.waitForIdle()
         if (compose.onAllNodesWithTag("chat_list").fetchSemanticsNodes().isNotEmpty()) {
             compose.onNodeWithText("Выйти").performClick()
@@ -53,11 +56,22 @@ class RealAccountFlowTest {
         compose.onNodeWithTag("message_input").performTextInput("Черновик после пересоздания")
         Thread.sleep(600)
         compose.activityRule.scenario.recreate()
+        keepScreenOn()
         compose.waitUntil(5_000) {
-            compose.onAllNodesWithTag("message_input").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithText("Черновик после пересоздания").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("message_input")
             .assertIsDisplayed()
             .assertTextEquals("Черновик после пересоздания")
+    }
+
+    private fun keepScreenOn() {
+        compose.activityRule.scenario.onActivity { activity ->
+            activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                activity.setShowWhenLocked(true)
+                activity.setTurnScreenOn(true)
+            }
+        }
     }
 }

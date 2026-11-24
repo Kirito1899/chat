@@ -8,7 +8,7 @@ import kotlin.test.assertNull
 
 class E2eeApiTest {
     private val ec = java.util.Base64.getEncoder().encodeToString(ByteArray(33))
-    private val kem = java.util.Base64.getEncoder().encodeToString(ByteArray(1568))
+    private val kem = java.util.Base64.getEncoder().encodeToString(ByteArray(1569))
     private val signature = java.util.Base64.getEncoder().encodeToString(ByteArray(64))
 
     @Test

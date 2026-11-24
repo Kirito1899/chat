@@ -7,6 +7,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.securemessenger.data.AccountRepository
 import dev.securemessenger.data.MessageRepository
 import dev.securemessenger.data.e2ee.IdentityChangedException
+import dev.securemessenger.data.e2ee.SafetyNumber
 import dev.securemessenger.data.local.DraftStore
 import dev.securemessenger.data.local.MessageEntity
 import dev.securemessenger.data.remote.ApiException
@@ -27,6 +28,7 @@ data class ChatsUiState(
     val searchResult: UserResponse? = null,
     val messages: List<MessageEntity> = emptyList(),
     val draft: String = "",
+    val safetyNumber: SafetyNumber? = null,
     val busy: Boolean = false,
     val error: String? = null,
 )
@@ -41,6 +43,7 @@ class ChatsViewModel @Inject constructor(
     private val mutableState = MutableStateFlow(ChatsUiState())
     val state: StateFlow<ChatsUiState> = mutableState.asStateFlow()
     private var draftJob: Job? = null
+    private var draftRevision = 0L
     private var messagesJob: Job? = null
     private var syncJob: Job? = null
 
@@ -76,6 +79,7 @@ class ChatsViewModel @Inject constructor(
     }
 
     fun selectChat(user: UserResponse) {
+        val revision = ++draftRevision
         savedState[CHAT_ID] = user.accountId
         savedState[CHAT_USERNAME] = user.username
         messagesJob?.cancel()
@@ -88,7 +92,7 @@ class ChatsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val draft = drafts.get("direct:${user.accountId}")
-            if (mutableState.value.selectedChat == user) {
+            if (mutableState.value.selectedChat == user && draftRevision == revision) {
                 mutableState.value = mutableState.value.copy(draft = draft)
             }
         }
@@ -124,7 +128,10 @@ class ChatsViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 messages.sendText(user, body)
-                updateDraft("")
+                draftRevision++
+                draftJob?.cancel()
+                drafts.save("direct:${user.accountId}", "")
+                mutableState.value = mutableState.value.copy(draft = "")
             } catch (error: CancellationException) {
                 throw error
             } catch (_: IdentityChangedException) {
@@ -137,7 +144,37 @@ class ChatsViewModel @Inject constructor(
         }
     }
 
+    fun openSafetyNumber() {
+        val user = mutableState.value.selectedChat ?: return
+        viewModelScope.launch {
+            try {
+                val number = messages.safetyNumber(user)
+                mutableState.value = mutableState.value.copy(safetyNumber = number)
+            } catch (_: Exception) {
+                mutableState.value = mutableState.value.copy(error = "SAFETY_NUMBER_UNAVAILABLE")
+            }
+        }
+    }
+
+    fun acceptSafetyNumber() {
+        val user = mutableState.value.selectedChat ?: return
+        viewModelScope.launch {
+            try {
+                messages.acceptChangedIdentity(user)
+                mutableState.value = mutableState.value.copy(safetyNumber = null, error = null)
+                messages.sync()
+            } catch (_: Exception) {
+                mutableState.value = mutableState.value.copy(safetyNumber = null, error = "IDENTITY_CHANGED")
+            }
+        }
+    }
+
+    fun closeSafetyNumber() {
+        mutableState.value = mutableState.value.copy(safetyNumber = null)
+    }
+
     fun closeChat() {
+        draftRevision++
         messagesJob?.cancel()
         syncJob?.cancel()
         savedState.remove<String>(CHAT_ID)
@@ -147,6 +184,7 @@ class ChatsViewModel @Inject constructor(
 
     fun updateDraft(value: String) {
         val chat = mutableState.value.selectedChat ?: return
+        draftRevision++
         mutableState.value = mutableState.value.copy(draft = value)
         draftJob?.cancel()
         draftJob = viewModelScope.launch {

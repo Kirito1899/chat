@@ -147,6 +147,17 @@ class JdbcAuthRepository(private val dataSource: DataSource) : AuthRepository {
         now: Instant,
     ) {
         dataSource.transaction { connection ->
+            connection.queryOne(
+                "SELECT id FROM accounts WHERE id = ? FOR UPDATE",
+                { rs -> rs.getObject("id", UUID::class.java) },
+                accountId,
+            ) ?: throw IllegalStateException("Account does not exist")
+            val owner = connection.queryOne(
+                "SELECT account_id FROM devices WHERE id = ? FOR UPDATE",
+                { rs -> rs.getObject("account_id", UUID::class.java) },
+                deviceId,
+            )
+            if (owner != null && owner != accountId) throw DeviceLimitException()
             val devices = connection.queryAll(
                 "SELECT id, revoked_at FROM devices WHERE account_id = ? FOR UPDATE",
                 { rs -> rs.getObject("id", UUID::class.java) to rs.getTimestamp("revoked_at") },
@@ -155,15 +166,16 @@ class JdbcAuthRepository(private val dataSource: DataSource) : AuthRepository {
             if (devices.any { (id, revokedAt) -> id != deviceId && revokedAt == null }) {
                 throw DeviceLimitException()
             }
-            if (devices.none { (id, _) -> id == deviceId }) {
-                connection.execute(
-                    "INSERT INTO devices(id, account_id, created_at) VALUES (?, ?, ?)",
+            if (owner == null) {
+                val inserted = connection.execute(
+                    "INSERT INTO devices(id, account_id, created_at) VALUES (?, ?, ?) ON CONFLICT (id) DO NOTHING",
                     deviceId,
                     accountId,
                     now,
                 )
+                if (inserted != 1) throw DeviceLimitException()
             } else {
-                connection.execute("UPDATE devices SET revoked_at = NULL WHERE id = ?", deviceId)
+                connection.execute("UPDATE devices SET revoked_at = NULL WHERE id = ? AND account_id = ?", deviceId, accountId)
             }
             connection.execute(
                 """

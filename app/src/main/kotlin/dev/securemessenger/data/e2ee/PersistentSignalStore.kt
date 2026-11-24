@@ -1,7 +1,6 @@
 package dev.securemessenger.data.e2ee
 
 import android.content.ContentValues
-import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import dev.securemessenger.data.local.AppDatabase
 import org.signal.libsignal.protocol.IdentityKey
@@ -10,7 +9,6 @@ import org.signal.libsignal.protocol.InvalidKeyIdException
 import org.signal.libsignal.protocol.NoSessionException
 import org.signal.libsignal.protocol.ReusedBaseKeyException
 import org.signal.libsignal.protocol.SignalProtocolAddress
-import org.signal.libsignal.protocol.ecc.ECKeyPair
 import org.signal.libsignal.protocol.ecc.ECPublicKey
 import org.signal.libsignal.protocol.groups.state.SenderKeyRecord
 import org.signal.libsignal.protocol.state.IdentityKeyStore
@@ -32,15 +30,30 @@ class PersistentSignalStore(
     private val registrationId: Int
 
     init {
-        val identity = db.blob("SELECT value FROM signal_local WHERE key = 'identity'")
-        localIdentity = if (identity == null) {
-            db.execSQL("INSERT INTO signal_local(key, value) VALUES ('identity', ?)", arrayOf(initialIdentity.serialize()))
-            db.execSQL("INSERT INTO signal_local(key, value) VALUES ('registration_id', ?)", arrayOf(ByteBuffer.allocate(4).putInt(initialRegistrationId).array()))
-            initialIdentity
-        } else {
-            IdentityKeyPair(identity)
+        SignalSchema.create(db)
+        db.beginTransaction()
+        try {
+            val identity = db.blob("SELECT value FROM signal_local WHERE key = 'identity'")
+            localIdentity = if (identity == null) {
+                db.execSQL("INSERT INTO signal_local(key, value) VALUES ('identity', ?)", arrayOf(initialIdentity.serialize()))
+                initialIdentity
+            } else {
+                IdentityKeyPair(identity)
+            }
+            val storedRegistrationId = db.blob("SELECT value FROM signal_local WHERE key = 'registration_id'")
+            registrationId = if (storedRegistrationId == null) {
+                db.execSQL(
+                    "INSERT INTO signal_local(key, value) VALUES ('registration_id', ?)",
+                    arrayOf(ByteBuffer.allocate(4).putInt(initialRegistrationId).array()),
+                )
+                initialRegistrationId
+            } else {
+                ByteBuffer.wrap(storedRegistrationId).int
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
         }
-        registrationId = ByteBuffer.wrap(db.blob("SELECT value FROM signal_local WHERE key = 'registration_id'")!!).int
     }
 
     @Synchronized
@@ -61,6 +74,25 @@ class PersistentSignalStore(
     }
 
     @Synchronized
+    fun acceptIdentitySession(
+        address: SignalProtocolAddress,
+        identityKey: IdentityKey,
+        session: SessionRecord,
+        accountId: String,
+        deviceId: String,
+    ) {
+        db.beginTransaction()
+        try {
+            saveIdentity(address, identityKey)
+            storeSession(address, session)
+            putLocalText("remote_device:$accountId", deviceId)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    @Synchronized
     override fun isTrustedIdentity(address: SignalProtocolAddress, identityKey: IdentityKey, direction: IdentityKeyStore.Direction): Boolean {
         val existing = getIdentity(address) ?: return true
         return existing == identityKey
@@ -68,7 +100,7 @@ class PersistentSignalStore(
 
     @Synchronized
     override fun getIdentity(address: SignalProtocolAddress): IdentityKey? =
-        db.blob("SELECT identity FROM signal_identities WHERE name = ? AND device_id = ?", arrayOf(address.name, address.deviceId))?.let(::IdentityKey)
+        db.blob("SELECT identity FROM signal_identities WHERE name = ? AND device_id = ?", arrayOf<Any>(address.name, address.deviceId))?.let { IdentityKey(it) }
 
     @Synchronized
     override fun loadPreKey(preKeyId: Int): PreKeyRecord = db.blob("SELECT record FROM signal_prekeys WHERE kind = 'EC' AND key_id = ?", arrayOf(preKeyId))
@@ -90,7 +122,7 @@ class PersistentSignalStore(
 
     @Synchronized
     override fun loadSession(address: SignalProtocolAddress): SessionRecord? =
-        db.blob("SELECT record FROM signal_sessions WHERE name = ? AND device_id = ?", arrayOf(address.name, address.deviceId))?.let(::SessionRecord)
+        db.blob("SELECT record FROM signal_sessions WHERE name = ? AND device_id = ?", arrayOf<Any>(address.name, address.deviceId))?.let { SessionRecord(it) }
 
     @Synchronized
     override fun loadExistingSessions(addresses: List<SignalProtocolAddress>): List<SessionRecord> = addresses.map { address ->
@@ -107,7 +139,7 @@ class PersistentSignalStore(
 
     @Synchronized
     override fun containsSession(address: SignalProtocolAddress): Boolean =
-        db.exists("SELECT 1 FROM signal_sessions WHERE name = ? AND device_id = ?", arrayOf(address.name, address.deviceId))
+        db.exists("SELECT 1 FROM signal_sessions WHERE name = ? AND device_id = ?", arrayOf<Any>(address.name, address.deviceId))
 
     @Synchronized
     override fun deleteSession(address: SignalProtocolAddress) {
@@ -160,11 +192,12 @@ class PersistentSignalStore(
 
     @Synchronized
     override fun markKyberPreKeyUsed(kyberPreKeyId: Int, signedPreKeyId: Int, baseKey: ECPublicKey) {
-        val serialized = baseKey.serialize()
-        if (db.exists("SELECT 1 FROM signal_kyber_used WHERE key_id = ? AND signed_id = ? AND base_key = ?", arrayOf(kyberPreKeyId, signedPreKeyId, serialized))) {
-            throw ReusedBaseKeyException()
-        }
-        db.upsert("signal_kyber_used", listOf("key_id" to kyberPreKeyId, "signed_id" to signedPreKeyId, "base_key" to serialized), SQLiteDatabase.CONFLICT_IGNORE)
+        val inserted = db.upsert(
+            "signal_kyber_used",
+            listOf("key_id" to kyberPreKeyId, "signed_id" to signedPreKeyId, "base_key" to baseKey.serialize()),
+            SQLiteDatabase.CONFLICT_IGNORE,
+        )
+        if (inserted == -1L) throw ReusedBaseKeyException()
     }
 
     @Synchronized
@@ -174,20 +207,24 @@ class PersistentSignalStore(
 
     @Synchronized
     override fun loadSenderKey(sender: SignalProtocolAddress, distributionId: UUID): SenderKeyRecord? =
-        db.blob("SELECT record FROM signal_sender_keys WHERE name = ? AND device_id = ? AND distribution_id = ?", arrayOf(sender.name, sender.deviceId, distributionId.toString()))?.let(::SenderKeyRecord)
+        db.blob("SELECT record FROM signal_sender_keys WHERE name = ? AND device_id = ? AND distribution_id = ?", arrayOf<Any>(sender.name, sender.deviceId, distributionId.toString()))?.let { SenderKeyRecord(it) }
 
+    @Synchronized
     fun localText(key: String): String? = db.blob("SELECT value FROM signal_local WHERE key = ?", arrayOf(key))?.toString(Charsets.UTF_8)
 
+    @Synchronized
     fun putLocalText(key: String, value: String) {
         db.execSQL("INSERT OR REPLACE INTO signal_local(key, value) VALUES (?, ?)", arrayOf(key, value.toByteArray(Charsets.UTF_8)))
     }
 
+    @Synchronized
     fun deleteLocalText(key: String) {
         db.delete("signal_local", "key = ?", arrayOf(key))
     }
 
     fun generateIdentity(): IdentityKeyPair = localIdentity
 
+    @Synchronized
     fun nextPreKeyId(): Int {
         val current = db.blob("SELECT value FROM signal_local WHERE key = 'next_prekey_id'")?.let { ByteBuffer.wrap(it).int } ?: 1
         val next = if (current >= 0xFFFFFE) 1 else current + 1
@@ -196,7 +233,7 @@ class PersistentSignalStore(
     }
 }
 
-private fun androidx.sqlite.db.SupportSQLiteDatabase.upsert(table: String, values: List<Pair<String, Any?>>, conflict: Int = SQLiteDatabase.CONFLICT_REPLACE) {
+private fun androidx.sqlite.db.SupportSQLiteDatabase.upsert(table: String, values: List<Pair<String, Any?>>, conflict: Int = SQLiteDatabase.CONFLICT_REPLACE): Long {
     val content = ContentValues()
     values.forEach { (key, value) ->
         when (value) {
@@ -206,7 +243,7 @@ private fun androidx.sqlite.db.SupportSQLiteDatabase.upsert(table: String, value
             else -> throw IllegalArgumentException("Unsupported value")
         }
     }
-    insert(table, conflict, content)
+    return insert(table, conflict, content)
 }
 
 private fun androidx.sqlite.db.SupportSQLiteDatabase.blob(sql: String, args: Array<out Any?> = emptyArray()): ByteArray? = query(sql, args).use { cursor ->
