@@ -139,4 +139,4 @@
 - [x] Остановить клиент получателя, отправить, перезапустить и подтвердить одну доставку без дубликатов.
 - [x] Проверить PostgreSQL ciphertext, отсутствие plaintext в logcat и обнаружение malicious key-directory substitution.
 - [x] Выполнить `assembleDebug`, все unit/integration/instrumented tests, lint и cold-start/logcat gate.
-- [ ] Обновить README, проверить git status, commit и push `increment-2-e2ee`.
+- [x] Обновить README, проверить git status, commit и push `increment-2-e2ee`.
