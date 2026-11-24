@@ -1,6 +1,7 @@
 package dev.securemessenger.server.config
 
 import dev.securemessenger.server.mail.SmtpConfig
+import java.nio.file.Path
 import java.util.Base64
 
 data class ServerConfig(
@@ -10,6 +11,7 @@ data class ServerConfig(
     val tokenPepper: ByteArray,
     val adminToken: String,
     val smtp: SmtpConfig,
+    val mediaPath: Path,
 ) {
     companion object {
         fun fromEnvironment(environment: Map<String, String> = System.getenv()): ServerConfig {
@@ -38,6 +40,7 @@ data class ServerConfig(
                 tokenPepper = pepper,
                 adminToken = adminToken,
                 smtp = smtp,
+                mediaPath = Path.of(environment["MEDIA_STORAGE_PATH"] ?: ".local/media").toAbsolutePath().normalize(),
             )
         }
     }

@@ -12,6 +12,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.MediaType.Companion.toMediaType
@@ -127,9 +128,17 @@ class AuthRepositoryTest {
             ciphertextType = 2,
             ciphertext = Base64.getEncoder().encodeToString(byteArrayOf(1, 2, 3)),
         )
-        repeat(2) { server.enqueue(jsonResponse("""{"code":"INVALID_CREDENTIALS"}""", 401)) }
-        server.enqueue(jsonResponse(json.encodeToString(rotated)))
-        repeat(2) { server.enqueue(jsonResponse(json.encodeToString(DeliveryResponse(messageId, false)), 202)) }
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: mockwebserver3.RecordedRequest): MockResponse = when (request.url.encodedPath) {
+                "/v1/auth/refresh" -> jsonResponse(json.encodeToString(rotated))
+                "/v1/messages" -> if (request.headers["Authorization"] == "Bearer expired-access") {
+                    jsonResponse("""{"code":"INVALID_CREDENTIALS"}""", 401)
+                } else {
+                    jsonResponse(json.encodeToString(DeliveryResponse(messageId, false)), 202)
+                }
+                else -> jsonResponse("""{"code":"NOT_FOUND"}""", 404)
+            }
+        }
 
         val results = List(2) {
             async(Dispatchers.Default) { repository.sendMessage(request) }

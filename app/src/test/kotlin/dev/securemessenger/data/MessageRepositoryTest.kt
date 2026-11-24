@@ -5,10 +5,18 @@ import dev.securemessenger.data.e2ee.DuplicateEnvelopeException
 import dev.securemessenger.data.e2ee.SafetyNumber
 import dev.securemessenger.data.e2ee.SafetyNumberParty
 import dev.securemessenger.data.e2ee.SafetyNumberService
+import dev.securemessenger.data.local.GroupInfoDao
+import dev.securemessenger.data.local.GroupInfoEntity
+import dev.securemessenger.data.local.GroupReceiptDao
+import dev.securemessenger.data.local.GroupReceiptEntity
 import dev.securemessenger.data.local.MessageDao
 import dev.securemessenger.data.local.MessageEntity
 import dev.securemessenger.data.local.OutboxDao
 import dev.securemessenger.data.local.OutboxEntity
+import dev.securemessenger.data.remote.ApiException
+import dev.securemessenger.shared.GroupMemberResponse
+import dev.securemessenger.shared.GroupResponse
+import dev.securemessenger.shared.SendGroupMessageRequest
 import dev.securemessenger.shared.DeliveredMessagesResponse
 import dev.securemessenger.shared.DeliveryResponse
 import dev.securemessenger.shared.IncomingMessage
@@ -16,6 +24,8 @@ import dev.securemessenger.shared.MessageListResponse
 import dev.securemessenger.shared.SendMessageRequest
 import dev.securemessenger.shared.UserResponse
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -27,6 +37,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -199,6 +210,108 @@ class MessageRepositoryTest {
         assertEquals("READ", messages.byId(readId)?.status)
     }
 
+    @Test
+    fun `group fanout aggregates delivery and read receipts per recipient`() = runTest {
+        val owner = UUID.randomUUID().toString()
+        val first = GroupMemberResponse(UUID.randomUUID().toString(), "first", "MEMBER")
+        val second = GroupMemberResponse(UUID.randomUUID().toString(), "second", "MEMBER")
+        val group = GroupResponse(UUID.randomUUID().toString(), owner, listOf(GroupMemberResponse(owner, "owner", "OWNER"), first, second))
+        val devices = mapOf(first.accountId to UUID.randomUUID().toString(), second.accountId to UUID.randomUUID().toString())
+        accounts.localAccountId = owner
+        accounts.group = group
+        cipher.deviceForAccount = { devices.getValue(it) }
+        val receipts = FakeGroupReceiptDao()
+        repository = MessageRepository(messages, outboxes, cipher, accounts, json, FakeGroupInfoDao(), receipts) { block -> block() }
+
+        val messageId = repository.sendGroupText(group, "group secret")
+
+        assertEquals(2, accounts.groupSent.size)
+        assertEquals(2, accounts.groupSent.map { it.envelope.messageId }.toSet().size)
+        assertTrue(accounts.groupSent.all { it.groupMessageId == messageId })
+        assertTrue(outboxes.items.isEmpty())
+        assertEquals("SENT", repository.observeGroupMessages(group.groupId).first().single().status)
+
+        accounts.delivered = listOf(accounts.groupSent[0].envelope.messageId)
+        repository.sync()
+        assertEquals("SENT", repository.observeGroupMessages(group.groupId).first().single().status)
+        accounts.delivered = accounts.groupSent.map { it.envelope.messageId }
+        repository.sync()
+        assertEquals("DELIVERED", repository.observeGroupMessages(group.groupId).first().single().status)
+
+        suspend fun readFrom(member: GroupMemberResponse) {
+            val payload = ChatPayload(ChatPayload.GROUP_READ_RECEIPT, messageId, createdAt = 1, groupId = group.groupId)
+            cipher.onDecrypt = { payload }
+            accounts.incoming = listOf(
+                IncomingMessage(
+                    UUID.randomUUID().toString(),
+                    member.accountId,
+                    devices.getValue(member.accountId),
+                    2,
+                    "ciphertext",
+                    1,
+                    group.groupId,
+                    payload.messageId,
+                ),
+            )
+            repository.sync()
+            accounts.incoming = emptyList()
+        }
+        readFrom(first)
+        messages.put(MessageEntity("incoming", "group:${group.groupId}", "incoming", false, 1, "DELIVERED", senderAccountId = first.accountId))
+        repository.markGroupRead(group)
+        assertNotEquals(messageId, accounts.groupSent.last().groupMessageId)
+        assertEquals("DELIVERED", repository.observeGroupMessages(group.groupId).first().single { it.outgoing }.status)
+        readFrom(second)
+        assertEquals("READ", repository.observeGroupMessages(group.groupId).first().single { it.outgoing }.status)
+    }
+
+    @Test
+    fun `removed group recipient is skipped without blocking other recipients`() = runTest {
+        val owner = UUID.randomUUID().toString()
+        val first = GroupMemberResponse(UUID.randomUUID().toString(), "first", "MEMBER")
+        val removed = GroupMemberResponse(UUID.randomUUID().toString(), "removed", "MEMBER")
+        val group = GroupResponse(UUID.randomUUID().toString(), owner, listOf(GroupMemberResponse(owner, "owner", "OWNER"), first, removed))
+        val removedDevice = UUID.randomUUID().toString()
+        accounts.localAccountId = owner
+        cipher.deviceForAccount = { account -> if (account == removed.accountId) removedDevice else UUID.randomUUID().toString() }
+        accounts.onGroupSend = { _, request ->
+            if (request.envelope.recipientDeviceId == removedDevice) throw ApiException("RECIPIENT_NOT_FOUND", 404)
+        }
+        val receipts = FakeGroupReceiptDao()
+        repository = MessageRepository(messages, outboxes, cipher, accounts, json, FakeGroupInfoDao(), receipts) { block -> block() }
+
+        repository.sendGroupText(group, "still delivered")
+
+        assertTrue(outboxes.items.isEmpty())
+        assertEquals("SKIPPED", receipts.items.values.single { it.recipientDeviceId == removedDevice }.state)
+        assertEquals("SENT", repository.observeGroupMessages(group.groupId).first().single().status)
+    }
+
+    @Test
+    fun `group info is accepted only from the current owner`() = runTest {
+        val owner = UUID.randomUUID().toString()
+        val member = GroupMemberResponse(UUID.randomUUID().toString(), "member", "MEMBER")
+        val group = GroupResponse(UUID.randomUUID().toString(), owner, listOf(GroupMemberResponse(owner, "owner", "OWNER"), member))
+        accounts.group = group
+        accounts.localAccountId = owner
+        val info = FakeGroupInfoDao()
+        repository = MessageRepository(messages, outboxes, cipher, accounts, json, info, FakeGroupReceiptDao()) { block -> block() }
+
+        suspend fun receiveTitle(sender: String, title: String) {
+            val payload = ChatPayload(ChatPayload.GROUP_INFO, UUID.randomUUID().toString(), title, 1, group.groupId)
+            cipher.onDecrypt = { payload }
+            accounts.incoming = listOf(
+                IncomingMessage(UUID.randomUUID().toString(), sender, UUID.randomUUID().toString(), 2, "ciphertext", 1, group.groupId, payload.messageId),
+            )
+            repository.sync()
+            accounts.incoming = emptyList()
+        }
+        receiveTitle(owner, "Private group")
+        assertEquals("Private group", info.get(group.groupId)?.title)
+        receiveTitle(member.accountId, "Forged title")
+        assertEquals("Private group", info.get(group.groupId)?.title)
+    }
+
     private fun incomingMessage() = IncomingMessage(
         messageId = UUID.randomUUID().toString(),
         senderAccountId = user.accountId,
@@ -218,8 +331,16 @@ private class FakeMessageCipher : MessageCipher {
     override suspend fun encryptText(user: UserResponse, messageId: String, body: String): SendMessageRequest =
         SendMessageRequest(messageId, recipientDeviceId, 2, encode("ciphertext:$messageId"))
 
+    var deviceForAccount: (String) -> String = { recipientDeviceId }
+
     override suspend fun encryptReadReceipt(user: UserResponse, originalMessageId: String): SendMessageRequest =
         SendMessageRequest(UUID.randomUUID().toString(), recipientDeviceId, 2, encode("receipt:$originalMessageId"))
+
+    override suspend fun encryptDirectPayload(user: UserResponse, payload: ChatPayload): SendMessageRequest =
+        SendMessageRequest(payload.messageId, deviceForAccount(user.accountId), 2, encode("payload:${payload.messageId}"))
+
+    override suspend fun encryptPayload(user: UserResponse, payload: ChatPayload): SendMessageRequest =
+        SendMessageRequest(UUID.randomUUID().toString(), deviceForAccount(user.accountId), 2, encode("payload:${payload.messageId}"))
 
     override suspend fun decrypt(message: IncomingMessage): ChatPayload = onDecrypt(message)
 
@@ -245,6 +366,10 @@ private class FakeMessageAccounts(
     var delivered = emptyList<String>()
     var failNextSend = false
     var onSend: suspend (SendMessageRequest) -> Unit = {}
+    val groupSent = mutableListOf<SendGroupMessageRequest>()
+    var onGroupSend: suspend (String, SendGroupMessageRequest) -> Unit = { _, _ -> }
+    var localAccountId: String? = null
+    var group: GroupResponse? = null
 
     override suspend fun sendMessage(request: SendMessageRequest): DeliveryResponse {
         events += "send:${request.messageId}"
@@ -265,6 +390,16 @@ private class FakeMessageAccounts(
     }
 
     override suspend fun fetchDelivered(): DeliveredMessagesResponse = DeliveredMessagesResponse(delivered)
+
+    override suspend fun sendGroupMessage(groupId: String, request: SendGroupMessageRequest): DeliveryResponse {
+        onGroupSend(groupId, request)
+        groupSent += request
+        return DeliveryResponse(request.envelope.messageId, false)
+    }
+
+    override suspend fun currentAccountId(): String? = localAccountId
+
+    override suspend fun fetchGroup(groupId: String): GroupResponse = requireNotNull(group)
 }
 
 private class FakeMessageDao(
@@ -293,6 +428,9 @@ private class FakeMessageDao(
 
     override suspend fun byId(messageId: String): MessageEntity? = items[messageId]
 
+    override suspend fun byIdInChat(messageId: String, chatId: String): MessageEntity? =
+        items[messageId]?.takeIf { it.chatId == chatId }
+
     override suspend fun unreadIncoming(chatId: String): List<MessageEntity> =
         items.values.filter { it.chatId == chatId && !it.outgoing && it.status == "DELIVERED" }
 
@@ -318,12 +456,69 @@ private class FakeOutboxDao(
 
     override suspend fun put(item: OutboxEntity) {
         events += "outbox:${item.messageId}"
-        items[item.messageId] = item
+        items[item.envelopeId] = item
     }
 
     override suspend fun all(): List<OutboxEntity> = items.values.sortedBy(OutboxEntity::createdAt)
 
-    override suspend fun delete(messageId: String) {
-        items.remove(messageId)
+    override suspend fun delete(envelopeId: String) {
+        items.remove(envelopeId)
+    }
+}
+
+
+private class FakeGroupInfoDao : GroupInfoDao {
+    private val values = mutableMapOf<String, GroupInfoEntity>()
+
+    override suspend fun upsert(info: GroupInfoEntity) {
+        values[info.groupId] = info
+    }
+
+    override suspend fun get(groupId: String): GroupInfoEntity? = values[groupId]
+
+    override fun observeAll(): Flow<List<GroupInfoEntity>> = flowOf(values.values.toList())
+}
+
+private class FakeGroupReceiptDao : GroupReceiptDao {
+    val items = linkedMapOf<String, GroupReceiptEntity>()
+    private val flow = MutableStateFlow<List<GroupReceiptEntity>>(emptyList())
+
+    override suspend fun insert(item: GroupReceiptEntity): Long {
+        val inserted = if (item.envelopeId in items) -1L else 1L
+        if (inserted == 1L) {
+            items[item.envelopeId] = item
+            update()
+        }
+        return inserted
+    }
+
+    override suspend fun markSent(envelopeId: String) {
+        items[envelopeId]?.takeIf { it.state == "PENDING" }?.let { items[envelopeId] = it.copy(state = "SENT") }
+        update()
+    }
+
+    override suspend fun markDelivered(envelopeId: String) {
+        items[envelopeId]?.takeIf { it.state == "PENDING" || it.state == "SENT" }?.let {
+            items[envelopeId] = it.copy(state = "DELIVERED")
+        }
+        update()
+    }
+
+    override suspend fun markSkipped(envelopeId: String) {
+        items[envelopeId]?.takeIf { it.state != "READ" }?.let { items[envelopeId] = it.copy(state = "SKIPPED") }
+        update()
+    }
+
+    override suspend fun markRead(groupMessageId: String, recipientDeviceId: String) {
+        items.values.filter { it.groupMessageId == groupMessageId && it.recipientDeviceId == recipientDeviceId }.forEach {
+            items[it.envelopeId] = it.copy(state = "READ")
+        }
+        update()
+    }
+
+    override fun observeAll(): Flow<List<GroupReceiptEntity>> = flow
+
+    private fun update() {
+        flow.value = items.values.toList()
     }
 }

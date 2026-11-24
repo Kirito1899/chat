@@ -25,6 +25,12 @@ tasks.register<JavaExec>("verifyCiphertext") {
     mainClass.set("dev.securemessenger.devtools.VerifyCiphertextKt")
 }
 
+tasks.register<JavaExec>("verifyMediaStorage") {
+    group = "verification"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("dev.securemessenger.devtools.VerifyMediaStorageKt")
+}
+
 dependencies {
     implementation(platform(libs.zonky.binaries.bom))
     implementation(libs.zonky.embedded.postgres) {

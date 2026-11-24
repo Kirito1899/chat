@@ -1,8 +1,16 @@
 package dev.securemessenger.data.remote
 
+import dev.securemessenger.shared.AddGroupMembersRequest
+import dev.securemessenger.shared.CreateGroupRequest
 import dev.securemessenger.shared.DeliveredMessagesResponse
 import dev.securemessenger.shared.DeliveryResponse
 import dev.securemessenger.shared.DeviceKeysUpload
+import dev.securemessenger.shared.GroupListResponse
+import dev.securemessenger.shared.GroupResponse
+import dev.securemessenger.shared.MediaStatusResponse
+import dev.securemessenger.shared.MediaUploadRequest
+import dev.securemessenger.shared.MediaUploadResponse
+import dev.securemessenger.shared.SendGroupMessageRequest
 import dev.securemessenger.shared.MessageListResponse
 import dev.securemessenger.shared.PreKeyBundleResponse
 import dev.securemessenger.shared.SendMessageRequest
@@ -102,11 +110,71 @@ class MessengerApi(
     suspend fun fetchDelivered(accessToken: String): DeliveredMessagesResponse =
         decode(execute(secureGet("/v1/messages/delivered", accessToken)))
 
-    private suspend fun execute(request: Request): String = withContext(Dispatchers.IO) {
+    suspend fun createGroup(request: CreateGroupRequest, accessToken: String): GroupResponse =
+        decode(execute(secureRequest("POST", "/v1/groups", request, accessToken)))
+
+    suspend fun listGroups(accessToken: String): GroupListResponse =
+        decode(execute(secureGet("/v1/groups", accessToken)))
+
+    suspend fun getGroup(groupId: String, accessToken: String): GroupResponse =
+        decode(execute(secureGet("/v1/groups/$groupId", accessToken)))
+
+    suspend fun addGroupMembers(groupId: String, request: AddGroupMembersRequest, accessToken: String): GroupResponse =
+        decode(execute(secureRequest("POST", "/v1/groups/$groupId/members", request, accessToken)))
+
+    suspend fun removeGroupMember(groupId: String, accountId: String, accessToken: String): GroupResponse {
+        val request = Request.Builder()
+            .url(baseUrl.toHttpUrl().newBuilder().addPathSegments("v1/groups/$groupId/members/$accountId").build())
+            .header("Authorization", "Bearer $accessToken")
+            .delete()
+            .build()
+        return decode(execute(request))
+    }
+
+    suspend fun sendGroupMessage(groupId: String, request: SendGroupMessageRequest, accessToken: String): DeliveryResponse =
+        decode(execute(secureRequest("POST", "/v1/groups/$groupId/messages", request, accessToken)))
+
+    suspend fun createMediaUpload(request: MediaUploadRequest, accessToken: String): MediaUploadResponse =
+        decode(execute(secureRequest("POST", "/v1/media/uploads", request, accessToken)))
+
+    suspend fun mediaStatus(mediaId: String, accessToken: String): MediaStatusResponse =
+        decode(execute(secureGet("/v1/media/$mediaId/status", accessToken)))
+
+    suspend fun uploadMediaChunk(mediaId: String, offset: Long, bytes: ByteArray, accessToken: String): MediaStatusResponse {
+        val request = Request.Builder()
+            .url(baseUrl.toHttpUrl().newBuilder().addPathSegments("v1/media/$mediaId/chunks/$offset").build())
+            .header("Authorization", "Bearer $accessToken")
+            .put(bytes.toRequestBody("application/octet-stream".toMediaType()))
+            .build()
+        return decode(execute(request))
+    }
+
+    suspend fun downloadMediaChunk(mediaId: String, start: Long, endInclusive: Long, accessToken: String): ByteArray {
+        val request = Request.Builder()
+            .url(baseUrl.toHttpUrl().newBuilder().addPathSegments("v1/media/$mediaId/content").build())
+            .header("Authorization", "Bearer $accessToken")
+            .header("Range", "bytes=$start-$endInclusive")
+            .get()
+            .build()
+        return executeBytes(request)
+    }
+
+    suspend fun deleteMedia(mediaId: String, accessToken: String) {
+        val request = Request.Builder()
+            .url(baseUrl.toHttpUrl().newBuilder().addPathSegments("v1/media/$mediaId").build())
+            .header("Authorization", "Bearer $accessToken")
+            .delete()
+            .build()
+        execute(request)
+    }
+
+    private suspend fun execute(request: Request): String = executeBytes(request).decodeToString()
+
+    private suspend fun executeBytes(request: Request): ByteArray = withContext(Dispatchers.IO) {
         client.newCall(request).execute().use { response ->
-            val body = response.body.string()
+            val body = response.body.bytes()
             if (!response.isSuccessful) {
-                val code = runCatching { json.decodeFromString<ErrorResponse>(body).code }
+                val code = runCatching { json.decodeFromString<ErrorResponse>(body.decodeToString()).code }
                     .getOrDefault("HTTP_${response.code}")
                 throw ApiException(code, response.code)
             }

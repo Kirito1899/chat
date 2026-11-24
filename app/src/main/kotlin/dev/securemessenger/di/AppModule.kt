@@ -11,6 +11,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.securemessenger.BuildConfig
+import dev.securemessenger.data.GroupChatRepository
 import dev.securemessenger.data.MessageRepository
 import dev.securemessenger.data.e2ee.E2eeManager
 import dev.securemessenger.data.e2ee.PersistentSignalStore
@@ -23,12 +24,15 @@ import dev.securemessenger.data.local.DataStoreSessionStore
 import dev.securemessenger.data.local.DraftStore
 import dev.securemessenger.data.local.KeyStoreManager
 import dev.securemessenger.data.local.SessionStore
+import dev.securemessenger.data.media.MediaService
+import dev.securemessenger.data.media.RepositoryMediaApi
 import dev.securemessenger.data.remote.MessengerApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
+import java.io.File
 import java.util.concurrent.TimeUnit
 import org.signal.libsignal.protocol.IdentityKeyPair
 import org.signal.libsignal.protocol.util.KeyHelper
@@ -121,4 +125,24 @@ object AppModule {
         accounts: AuthRepository,
         json: Json,
     ): MessageRepository = MessageRepository(database, e2ee, accounts, json)
+
+    @Provides
+    @Singleton
+    fun groupChats(
+        database: AppDatabase,
+        accounts: AuthRepository,
+        messages: MessageRepository,
+    ): GroupChatRepository = GroupChatRepository(database.groupInfo(), accounts, messages)
+
+    @Provides
+    @Singleton
+    fun mediaService(
+        @ApplicationContext context: Context,
+        database: AppDatabase,
+        accounts: AuthRepository,
+    ): MediaService = MediaService(
+        File(context.noBackupFilesDir, "media"),
+        RepositoryMediaApi(accounts),
+        database.mediaUploads(),
+    )
 }

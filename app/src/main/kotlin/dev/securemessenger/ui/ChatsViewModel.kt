@@ -1,5 +1,6 @@
 package dev.securemessenger.ui
 
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -10,6 +11,11 @@ import dev.securemessenger.data.e2ee.IdentityChangedException
 import dev.securemessenger.data.e2ee.SafetyNumber
 import dev.securemessenger.data.local.DraftStore
 import dev.securemessenger.data.local.MessageEntity
+import dev.securemessenger.data.media.MediaInput
+import dev.securemessenger.data.media.MediaKind
+import dev.securemessenger.data.media.MediaMessagePreparer
+import dev.securemessenger.data.media.MediaService
+import dev.securemessenger.data.media.VoiceRecordingRepository
 import dev.securemessenger.data.remote.ApiException
 import dev.securemessenger.shared.UserResponse
 import dev.securemessenger.shared.ValidationException
@@ -31,6 +37,8 @@ data class ChatsUiState(
     val safetyNumber: SafetyNumber? = null,
     val busy: Boolean = false,
     val error: String? = null,
+    val isRecording: Boolean = false,
+    val mediaProgress: String? = null,
 )
 
 @HiltViewModel
@@ -39,6 +47,9 @@ class ChatsViewModel @Inject constructor(
     private val messages: MessageRepository,
     private val drafts: DraftStore,
     private val savedState: SavedStateHandle,
+    private val media: MediaService,
+    private val mediaPreparer: MediaMessagePreparer,
+    private val voiceRecording: VoiceRecordingRepository,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(ChatsUiState())
     val state: StateFlow<ChatsUiState> = mutableState.asStateFlow()
@@ -144,6 +155,73 @@ class ChatsViewModel @Inject constructor(
         }
     }
 
+    fun sendUriMedia(uri: Uri, kind: MediaKind) {
+        val user = mutableState.value.selectedChat ?: return
+        if (mutableState.value.busy) return
+        viewModelScope.launch {
+            mutableState.value = mutableState.value.copy(busy = true, error = null)
+            try {
+                val input = mediaPreparer.fromUri(uri, kind)
+                sendMediaInput(user, input)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: ApiException) {
+                mutableState.value = mutableState.value.copy(error = error.code)
+            } catch (_: IOException) {
+                mutableState.value = mutableState.value.copy(error = "NETWORK_ERROR")
+            } catch (_: Exception) {
+                mutableState.value = mutableState.value.copy(error = "MEDIA_SEND_FAILED")
+            } finally {
+                mutableState.value = mutableState.value.copy(busy = false, mediaProgress = null)
+            }
+        }
+    }
+
+    fun startVoiceRecording() {
+        if (mutableState.value.busy) return
+        try {
+            voiceRecording.start()
+            mutableState.value = mutableState.value.copy(isRecording = true, error = null)
+        } catch (_: Exception) {
+            mutableState.value = mutableState.value.copy(error = "VOICE_RECORDING_FAILED")
+        }
+    }
+
+    fun stopVoiceRecording() {
+        val user = mutableState.value.selectedChat ?: return
+        if (!voiceRecording.isRecording) return
+        viewModelScope.launch {
+            try {
+                val recording = voiceRecording.stop()
+                mutableState.value = mutableState.value.copy(isRecording = false, busy = true, error = null)
+                sendMediaInput(user, mediaPreparer.fromRecording(recording))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                mutableState.value = mutableState.value.copy(error = "MEDIA_SEND_FAILED")
+            } finally {
+                mutableState.value = mutableState.value.copy(busy = false, isRecording = false, mediaProgress = null)
+            }
+        }
+    }
+
+    fun cancelVoiceRecording() {
+        voiceRecording.cancel()
+        mutableState.value = mutableState.value.copy(isRecording = false)
+    }
+
+    private suspend fun sendMediaInput(user: UserResponse, input: MediaInput) {
+        val caption = mutableState.value.draft
+        val prepared = media.prepare(input.open, input.fileName, input.mimeType, input.size, { uploaded ->
+            mutableState.value = mutableState.value.copy(mediaProgress = "$uploaded")
+        }, input.cleanup)
+        messages.sendMedia(user, prepared.descriptor, caption)
+        draftRevision++
+        draftJob?.cancel()
+        drafts.save("direct:${user.accountId}", "")
+        mutableState.value = mutableState.value.copy(draft = "")
+    }
+
     fun openSafetyNumber() {
         val user = mutableState.value.selectedChat ?: return
         viewModelScope.launch {
@@ -194,6 +272,7 @@ class ChatsViewModel @Inject constructor(
     }
 
     fun reset() {
+        voiceRecording.cancel()
         closeChat()
         mutableState.value = ChatsUiState()
     }

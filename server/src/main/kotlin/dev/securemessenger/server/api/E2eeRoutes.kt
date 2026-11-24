@@ -63,6 +63,6 @@ fun Route.e2eeRoutes(repository: E2eeRepository, events: EventsHub) {
     }
 }
 
-private fun parseUuid(raw: String?): UUID =
+internal fun parseUuid(raw: String?): UUID =
     raw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
         ?: throw ValidationException("INVALID_UUID")

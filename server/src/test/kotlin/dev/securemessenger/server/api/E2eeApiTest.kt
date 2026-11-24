@@ -273,6 +273,11 @@ class E2eeApiTest {
             requests += Triple(senderAccountId, senderDeviceId, request)
         }
 
+        override fun enqueueGroup(senderAccountId: UUID, senderDeviceId: UUID, groupId: UUID, groupMessageId: UUID, request: SendMessageRequest) {
+            request.validate()
+            requests += Triple(senderAccountId, senderDeviceId, request)
+        }
+
         override fun fetchUndelivered(deviceId: UUID): List<IncomingMessage> = messages
 
         override fun markDelivered(messageId: UUID, recipientDeviceId: UUID): Boolean {

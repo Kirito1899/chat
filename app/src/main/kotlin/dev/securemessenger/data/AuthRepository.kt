@@ -3,8 +3,17 @@ package dev.securemessenger.data
 import dev.securemessenger.data.local.SessionStore
 import dev.securemessenger.data.remote.ApiException
 import dev.securemessenger.data.remote.MessengerApi
+import dev.securemessenger.shared.AddGroupMembersRequest
+import dev.securemessenger.shared.CreateGroupRequest
 import dev.securemessenger.shared.DeliveredMessagesResponse
+import dev.securemessenger.shared.DeliveryResponse
 import dev.securemessenger.shared.DeviceKeysUpload
+import dev.securemessenger.shared.GroupListResponse
+import dev.securemessenger.shared.GroupResponse
+import dev.securemessenger.shared.MediaStatusResponse
+import dev.securemessenger.shared.MediaUploadRequest
+import dev.securemessenger.shared.MediaUploadResponse
+import dev.securemessenger.shared.SendGroupMessageRequest
 import dev.securemessenger.shared.MessageListResponse
 import dev.securemessenger.shared.PreKeyBundleResponse
 import dev.securemessenger.shared.SendMessageRequest
@@ -84,6 +93,34 @@ class AuthRepository(
     suspend fun markDelivered(messageId: String) = authorized { api.markDelivered(messageId, it) }
 
     suspend fun fetchDelivered(): DeliveredMessagesResponse = authorized { api.fetchDelivered(it) }
+
+    suspend fun createGroup(memberUsernames: List<String>): GroupResponse =
+        authorized { api.createGroup(CreateGroupRequest(memberUsernames), it) }
+
+    suspend fun listGroups(): GroupListResponse = authorized { api.listGroups(it) }
+
+    suspend fun getGroup(groupId: String): GroupResponse = authorized { api.getGroup(groupId, it) }
+
+    suspend fun addGroupMembers(groupId: String, memberUsernames: List<String>): GroupResponse =
+        authorized { api.addGroupMembers(groupId, AddGroupMembersRequest(memberUsernames), it) }
+
+    suspend fun removeGroupMember(groupId: String, accountId: String): GroupResponse =
+        authorized { api.removeGroupMember(groupId, accountId, it) }
+
+    suspend fun sendGroupMessage(groupId: String, request: SendGroupMessageRequest): DeliveryResponse =
+        authorized { api.sendGroupMessage(groupId, request, it) }
+
+    suspend fun createMediaUpload(request: MediaUploadRequest): MediaUploadResponse = authorized { api.createMediaUpload(request, it) }
+
+    suspend fun mediaStatus(mediaId: String): MediaStatusResponse = authorized { api.mediaStatus(mediaId, it) }
+
+    suspend fun uploadMediaChunk(mediaId: String, offset: Long, bytes: ByteArray): MediaStatusResponse =
+        authorized { api.uploadMediaChunk(mediaId, offset, bytes, it) }
+
+    suspend fun downloadMediaChunk(mediaId: String, start: Long, endInclusive: Long): ByteArray =
+        authorized { api.downloadMediaChunk(mediaId, start, endInclusive, it) }
+
+    suspend fun deleteMedia(mediaId: String) = authorized { api.deleteMedia(mediaId, it) }
 
     private suspend fun <T> authorized(block: suspend (String) -> T): T {
         val session = sessions.read() ?: throw ApiException("INVALID_CREDENTIALS", 401)

@@ -37,6 +37,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -206,6 +207,44 @@ class E2eeManagerTest {
         assertEquals(2, second.ciphertextType)
         assertEquals(secondId, secondPayload.messageId)
         assertEquals("second-body", secondPayload.body)
+    }
+
+    @Test
+    fun `group payloads use separate envelope ids and preserve group context`() = runTest {
+        val fixture = fixture()
+        establishSessions(fixture)
+        val groupId = UUID.randomUUID().toString()
+        val payload = ChatPayload(ChatPayload.GROUP_TEXT, messageId(), "group-body", 123, groupId)
+
+        val request = fixture.sender.encryptPayload(fixture.recipientUser, payload)
+        val second = fixture.sender.encryptPayload(fixture.recipientUser, payload)
+
+        assertNotEquals(payload.messageId, request.messageId)
+        assertNotEquals(request.messageId, second.messageId)
+        assertNotEquals(request.ciphertext, second.ciphertext)
+        val incoming = request.incoming(SENDER_ACCOUNT, SENDER_DEVICE).copy(
+            groupId = groupId,
+            groupMessageId = payload.messageId,
+        )
+        assertEquals(payload, fixture.recipient.decrypt(incoming))
+        assertFailsWith<InvalidMessageException> {
+            fixture.recipient.decrypt(
+                second.incoming(SENDER_ACCOUNT, SENDER_DEVICE).copy(
+                    groupId = UUID.randomUUID().toString(),
+                    groupMessageId = payload.messageId,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `direct envelope and payload ids must match`() = runTest {
+        val fixture = fixture()
+        val request = fixture.sender.encryptText(fixture.recipientUser, messageId(), "body")
+
+        assertFailsWith<InvalidMessageException> {
+            fixture.recipient.decrypt(request.incoming(SENDER_ACCOUNT, SENDER_DEVICE).copy(messageId = messageId()))
+        }
     }
 
     @Test

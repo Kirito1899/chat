@@ -1,5 +1,8 @@
 package dev.securemessenger.server.e2ee
 
+import dev.securemessenger.server.groups.GroupConflictException
+import dev.securemessenger.server.media.MediaAccessException
+import dev.securemessenger.server.media.MediaNotReadyException
 import dev.securemessenger.server.storage.transaction
 import dev.securemessenger.shared.DeviceKeysUpload
 import dev.securemessenger.shared.IncomingMessage
@@ -28,6 +31,7 @@ interface E2eeRepository {
     fun storeDeviceKeys(accountId: UUID, deviceId: UUID, upload: DeviceKeysUpload)
     fun fetchBundleByUsername(username: String): PreKeyBundleResponse?
     fun enqueue(senderAccountId: UUID, senderDeviceId: UUID, request: SendMessageRequest)
+    fun enqueueGroup(senderAccountId: UUID, senderDeviceId: UUID, groupId: UUID, groupMessageId: UUID, request: SendMessageRequest)
     fun fetchUndelivered(deviceId: UUID): List<IncomingMessage>
     fun markDelivered(messageId: UUID, recipientDeviceId: UUID): Boolean
     fun deliveredSenderDevice(messageId: UUID, recipientDeviceId: UUID): UUID?
@@ -151,9 +155,24 @@ class JdbcE2eeRepository(private val dataSource: DataSource) : E2eeRepository {
     }
 
     override fun enqueue(senderAccountId: UUID, senderDeviceId: UUID, request: SendMessageRequest) {
+        enqueueInternal(senderAccountId, senderDeviceId, null, null, request)
+    }
+
+    override fun enqueueGroup(senderAccountId: UUID, senderDeviceId: UUID, groupId: UUID, groupMessageId: UUID, request: SendMessageRequest) {
+        enqueueInternal(senderAccountId, senderDeviceId, groupId, groupMessageId, request)
+    }
+
+    private fun enqueueInternal(
+        senderAccountId: UUID,
+        senderDeviceId: UUID,
+        groupId: UUID?,
+        groupMessageId: UUID?,
+        request: SendMessageRequest,
+    ) {
         request.validate()
         val messageId = UUID.fromString(request.messageId)
         val recipient = UUID.fromString(request.recipientDeviceId)
+        val mediaId = request.mediaId?.let(UUID::fromString)
         val ciphertext = request.ciphertext.decode()
         dataSource.transaction { connection ->
             connection.execute("DELETE FROM message_queue WHERE expires_at <= now()")
@@ -164,18 +183,73 @@ class JdbcE2eeRepository(private val dataSource: DataSource) : E2eeRepository {
                 senderAccountId,
             ) != null
             if (!senderAuthorized) throw MessageAuthorizationException()
-            val recipientExists = connection.queryOne(
-                "SELECT 1 FROM devices WHERE id = ? AND revoked_at IS NULL",
-                { it.getInt(1) },
-                recipient,
-            ) != null
+            if (groupId != null) {
+                val senderMember = connection.queryOne(
+                    "SELECT 1 FROM group_members WHERE group_id = ? AND account_id = ? AND removed_at IS NULL",
+                    { it.getInt(1) },
+                    groupId,
+                    senderAccountId,
+                ) != null
+                if (!senderMember) throw MessageAuthorizationException()
+            }
+            val recipientExists = if (groupId == null) {
+                connection.queryOne(
+                    "SELECT 1 FROM devices WHERE id = ? AND revoked_at IS NULL",
+                    { it.getInt(1) },
+                    recipient,
+                ) != null
+            } else {
+                connection.queryOne(
+                    """
+                    SELECT 1 FROM devices d
+                    JOIN group_members gm ON gm.account_id = d.account_id
+                    WHERE d.id = ? AND d.revoked_at IS NULL AND gm.group_id = ? AND gm.removed_at IS NULL
+                    """,
+                    { it.getInt(1) },
+                    recipient,
+                    groupId,
+                ) != null
+            }
             if (!recipientExists) throw RecipientNotFoundException()
+            if (mediaId != null) {
+                val media = connection.queryOne(
+                    "SELECT owner_account_id, status FROM media_objects WHERE id = ? FOR UPDATE",
+                    { rs -> rs.getObject("owner_account_id", UUID::class.java) to rs.getString("status") },
+                    mediaId,
+                ) ?: throw MediaAccessException()
+                if (media.first != senderAccountId) throw MediaAccessException()
+                if (media.second != "READY") throw MediaNotReadyException()
+            }
+            if (groupId != null && groupMessageId != null) {
+                val insertedGroupMessage = connection.queryOne(
+                    """
+                    INSERT INTO group_messages(id, group_id, sender_account_id, sender_device_id)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT (id) DO NOTHING
+                    RETURNING id
+                    """,
+                    { it.getObject(1, UUID::class.java) },
+                    groupMessageId,
+                    groupId,
+                    senderAccountId,
+                    senderDeviceId,
+                )
+                if (insertedGroupMessage == null) {
+                    val groupMessage = connection.queryOne(
+                        "SELECT group_id, sender_device_id FROM group_messages WHERE id = ? FOR UPDATE",
+                        { rs -> rs.getObject("group_id", UUID::class.java) to rs.getObject("sender_device_id", UUID::class.java) },
+                        groupMessageId,
+                    ) ?: throw GroupConflictException()
+                    if (groupMessage.first != groupId || groupMessage.second != senderDeviceId) throw GroupConflictException()
+                }
+            }
+            val now = Instant.now()
             val inserted = connection.queryOne(
                 """
                 INSERT INTO message_queue(
                     message_id, recipient_device_id, sender_account_id, sender_device_id,
-                    ciphertext_type, ciphertext, created_at, expires_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ciphertext_type, ciphertext, created_at, expires_at, group_id, group_message_id, media_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT DO NOTHING
                 RETURNING message_id
                 """,
@@ -186,19 +260,45 @@ class JdbcE2eeRepository(private val dataSource: DataSource) : E2eeRepository {
                 senderDeviceId,
                 request.ciphertextType,
                 ciphertext,
-                Instant.now(),
-                Instant.now() + Duration.ofDays(7),
+                now,
+                now + Duration.ofDays(7),
+                groupId,
+                groupMessageId,
+                mediaId,
             )
             if (inserted == null) {
                 val existing = connection.queryOne(
-                    "SELECT sender_device_id, ciphertext_type, ciphertext FROM message_queue WHERE message_id = ? AND recipient_device_id = ?",
-                    { rs -> ExistingMessage(rs.getObject("sender_device_id", UUID::class.java), rs.getInt("ciphertext_type"), rs.getBytes("ciphertext")) },
+                    """
+                    SELECT sender_device_id, ciphertext_type, ciphertext, group_id, group_message_id, media_id
+                    FROM message_queue WHERE message_id = ? AND recipient_device_id = ?
+                    """,
+                    { rs ->
+                        ExistingMessage(
+                            rs.getObject("sender_device_id", UUID::class.java),
+                            rs.getInt("ciphertext_type"),
+                            rs.getBytes("ciphertext"),
+                            rs.getObject("group_id", UUID::class.java),
+                            rs.getObject("group_message_id", UUID::class.java),
+                            rs.getObject("media_id", UUID::class.java),
+                        )
+                    },
                     messageId,
                     recipient,
                 ) ?: throw MessageConflictException()
-                if (existing.senderDeviceId != senderDeviceId || existing.type != request.ciphertextType || !MessageDigest.isEqual(existing.ciphertext, ciphertext)) {
+                if (existing.senderDeviceId != senderDeviceId || existing.type != request.ciphertextType ||
+                    !MessageDigest.isEqual(existing.ciphertext, ciphertext) || existing.groupId != groupId ||
+                    existing.groupMessageId != groupMessageId || existing.mediaId != mediaId
+                ) {
                     throw MessageConflictException()
                 }
+            }
+            if (mediaId != null) {
+                connection.execute(
+                    "INSERT INTO media_recipients(media_id, device_id, group_message_id) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+                    mediaId,
+                    recipient,
+                    groupMessageId,
+                )
             }
         }
     }
@@ -206,7 +306,7 @@ class JdbcE2eeRepository(private val dataSource: DataSource) : E2eeRepository {
     override fun fetchUndelivered(deviceId: UUID): List<IncomingMessage> = dataSource.connection.use { connection ->
         connection.queryAll(
             """
-            SELECT message_id, sender_account_id, sender_device_id, ciphertext_type, ciphertext, created_at
+            SELECT message_id, sender_account_id, sender_device_id, ciphertext_type, ciphertext, created_at, group_id, group_message_id
             FROM message_queue
             WHERE recipient_device_id = ? AND delivered_at IS NULL AND expires_at > now()
             ORDER BY created_at
@@ -220,6 +320,8 @@ class JdbcE2eeRepository(private val dataSource: DataSource) : E2eeRepository {
                     ciphertextType = rs.getInt("ciphertext_type"),
                     ciphertext = rs.getBytes("ciphertext").encode(),
                     createdAt = rs.getTimestamp("created_at").toInstant().toEpochMilli(),
+                    groupId = rs.getObject("group_id", UUID::class.java)?.toString(),
+                    groupMessageId = rs.getObject("group_message_id", UUID::class.java)?.toString(),
                 )
             },
             deviceId,
@@ -286,7 +388,14 @@ class JdbcE2eeRepository(private val dataSource: DataSource) : E2eeRepository {
     )
 
     private data class ConsumedPreKey(val id: Int, val publicKey: ByteArray, val signature: ByteArray?)
-    private data class ExistingMessage(val senderDeviceId: UUID, val type: Int, val ciphertext: ByteArray)
+    private data class ExistingMessage(
+        val senderDeviceId: UUID,
+        val type: Int,
+        val ciphertext: ByteArray,
+        val groupId: UUID?,
+        val groupMessageId: UUID?,
+        val mediaId: UUID?,
+    )
 }
 
 private fun String.decode(): ByteArray = Base64.getDecoder().decode(this)

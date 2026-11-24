@@ -46,6 +46,10 @@ android {
         buildConfig = true
     }
 
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -82,6 +86,9 @@ dependencies {
     implementation(libs.libsignal.android)
     implementation(libs.libsignal.client)
     implementation(libs.zxing.core)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
+    implementation(libs.media3.datasource)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.compose.ui)
@@ -105,4 +112,5 @@ dependencies {
     androidTestImplementation(libs.kotlin.test.junit)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.compose.ui.test.junit4)
+    androidTestImplementation(libs.room.testing)
 }

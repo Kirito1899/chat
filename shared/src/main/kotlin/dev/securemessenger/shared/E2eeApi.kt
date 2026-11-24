@@ -56,10 +56,12 @@ data class SendMessageRequest(
     val recipientDeviceId: String,
     val ciphertextType: Int,
     val ciphertext: String,
+    val mediaId: String? = null,
 ) {
     fun validate() {
         messageId.requireUuid()
         recipientDeviceId.requireUuid()
+        mediaId?.requireUuid()
         requireValid(ciphertextType == 2 || ciphertextType == 3, "INVALID_CIPHERTEXT_TYPE")
         val bytes = ciphertext.decodeKey(null)
         requireValid(bytes.isNotEmpty() && bytes.size <= 32 * 1024, "INVALID_CIPHERTEXT_SIZE")
@@ -74,6 +76,8 @@ data class IncomingMessage(
     val ciphertextType: Int,
     val ciphertext: String,
     val createdAt: Long,
+    val groupId: String? = null,
+    val groupMessageId: String? = null,
 )
 
 @Serializable
@@ -120,6 +124,6 @@ private fun String.decodeKey(expectedSize: Int?): ByteArray {
     return bytes
 }
 
-private fun String.requireUuid() {
+internal fun String.requireUuid() {
     runCatching { UUID.fromString(this) }.getOrNull() ?: throw ValidationException("INVALID_UUID")
 }

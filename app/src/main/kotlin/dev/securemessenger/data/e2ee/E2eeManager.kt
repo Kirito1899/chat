@@ -15,6 +15,7 @@ import kotlinx.serialization.json.Json
 import org.signal.libsignal.protocol.DuplicateMessageException
 import org.signal.libsignal.protocol.IdentityKey
 import org.signal.libsignal.protocol.InvalidKeyException
+import org.signal.libsignal.protocol.InvalidMessageException
 import org.signal.libsignal.protocol.SessionBuilder
 import org.signal.libsignal.protocol.SessionCipher
 import org.signal.libsignal.protocol.SignalProtocolAddress
@@ -113,6 +114,20 @@ class E2eeManager internal constructor(
         }
     }
 
+    suspend fun encryptDirectPayload(user: UserResponse, payload: ChatPayload): SendMessageRequest = withContext(Dispatchers.IO) {
+        crypto.withLock {
+            val remote = ensureRemoteSession(user)
+            encrypt(remote, user.accountId, payload, payload.messageId)
+        }
+    }
+
+    suspend fun encryptPayload(user: UserResponse, payload: ChatPayload): SendMessageRequest = withContext(Dispatchers.IO) {
+        crypto.withLock {
+            val remote = ensureRemoteSession(user)
+            encrypt(remote, user.accountId, payload, UUID.randomUUID().toString())
+        }
+    }
+
     suspend fun decrypt(message: IncomingMessage): ChatPayload = withContext(Dispatchers.IO) {
         crypto.withLock {
             val remote = SignalProtocolAddress(protocolName(message.senderAccountId, message.senderDeviceId), 1)
@@ -128,7 +143,15 @@ class E2eeManager internal constructor(
             } catch (_: UntrustedIdentityException) {
                 throw identityChanged(message.senderAccountId)
             }
-            json.decodeFromString<ChatPayload>(plaintext.decodeToString())
+            val payload = json.decodeFromString<ChatPayload>(plaintext.decodeToString())
+            if (payload.groupId != message.groupId) throw InvalidMessageException("Group context mismatch")
+            if (payload.kind !in ChatPayload.receipts && message.groupId != null && payload.messageId != message.groupMessageId) {
+                throw InvalidMessageException("Group message ID mismatch")
+            }
+            if (payload.kind !in ChatPayload.receipts && message.groupId == null && payload.messageId != message.messageId) {
+                throw InvalidMessageException("Direct message ID mismatch")
+            }
+            payload
         }
     }
 
@@ -226,6 +249,7 @@ class E2eeManager internal constructor(
             recipientDeviceId = remote.deviceId,
             ciphertextType = ciphertext.type,
             ciphertext = ciphertext.serialize().base64(),
+            mediaId = payload.media?.mediaId,
         )
     }
 
