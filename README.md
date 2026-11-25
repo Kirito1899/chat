@@ -1,6 +1,6 @@
 # Private Messenger
 
-Закрытый Android-мессенджер с сервером на Kotlin. Реализованы приращения 1–3: аккаунты по приглашению, email verification/recovery, username search, одно активное устройство на аккаунт, личные и групповые сообщения со сквозным шифрованием (E2EE), зашифрованные медиа.
+Закрытый Android-мессенджер с сервером на Kotlin. Реализованы приращения 1–4: аккаунты по приглашению, email verification/recovery, username search, одно активное устройство на аккаунт, личные и групповые сообщения со сквозным шифрованием (E2EE), зашифрованные медиа.
 
 ## Что работает
 
@@ -10,7 +10,7 @@
 - Android хранит identity, prekeys, Signal sessions, сообщения, outbox и черновики в SQLCipher. Ключи расшифровки защищены Android Keystore.
 - Offline outbox, подтверждение доставки после durable local save, статусы `PENDING`/`SENT`/`DELIVERED`/`READ`.
 - Safety number из 60 цифр и QR. Смена identity блокирует отправку; пользователь видит fingerprint нового bundle и принимает именно просмотренный bundle после проверки подписей.
-- Восстановление сессии и черновиков после пересоздания Activity/перезапуска приложения, автопрокрутка к последнему сообщению, адаптивные layouts и Flex Mode.
+- Восстановление сессии, черновиков и выбранного чата/группы после пересоздания Activity и process death. Навигация хранится в SQLCipher, автопрокрутка к последнему сообщению, адаптивные layouts и Flex Mode.
 - HTTPS с проверкой CA/hostname. Dev APK использует локальный dev CA; cleartext отключён.
 - Группы до 50 участников с pairwise Signal E2EE и отдельным envelope для каждого получателя. Название группы находится только в E2EE payload; владелец управляет участниками. Для добавления участник должен хотя бы раз войти и опубликовать ключи, иначе сервер отклоняет операцию.
 - Новый участник не получает прежнюю историю. После удаления участника сервер запрещает ему новые сообщения и удаляет его недоставленные group envelopes.
@@ -65,7 +65,7 @@ curl --ssl-no-revoke --cacert .local/tls/ca.crt \
   :app:testDebugUnitTest :app:lintDebug :app:assembleDebugAndroidTest
 ```
 
-PostgreSQL integration tests используют Zonky с настоящими PostgreSQL 18.7 binaries. SMTP test использует настоящий Mailpit на `127.0.0.1:1025/8025`. Эти проверки не заменяются mocks и не пропускаются незаметно.
+PostgreSQL integration tests используют Zonky с настоящими PostgreSQL 18.7 binaries. SMTP test использует настоящий Mailpit на `127.0.0.1:1025/8025`. Эти проверки не заменяются mocks и не пропускаются незаметно. `HundredUserLoadTest` создаёт 100 аккаунтов/устройств, группу из 50 участников и 148 ciphertext envelopes, проверяя очереди каждого получателя и измеряя длительность.
 
 При запущенном dev-окружении:
 
@@ -75,6 +75,7 @@ PostgreSQL integration tests используют Zonky с настоящими 
 - `bash scripts/group-three-clients.sh` проверяет три изолированных клиента: приглашения с pairwise E2EE, отсутствие прежней истории у нового участника, PNG/MP4/WAV/TXT, group receipts, удаление участника и offline delivery. Сначала каждый клиент публикует свои ключи. `CLIENT_A_SUFFIX`, `CLIENT_B_SUFFIX`, `CLIENT_C_SUFFIX` задают application ID; `A_EMAIL`, `A_USER`, `B_EMAIL`, `B_USER`, `C_EMAIL`, `C_USER` — соответствующие тестовые аккаунты. Для новых installation ID нужны новые тестовые аккаунты или явно отозванные старые тестовые устройства: ограничение `DEVICE_LIMIT` не обходится.
 - `bash scripts/sync-fallback-two-clients.sh` проверяет реальный WSS event, затем `am kill` процесса получателя, доставку через `JobScheduler`, восстановление зашифрованного хранилища и обобщённое системное уведомление. Сценарий использует локальные dev-аккаунты, заданные в начале скрипта, и проверяет отсутствие plaintext и крэшей в logcat. Для проверки failover задайте `API_BASE_URL=https://127.0.0.1:9443/ API_FALLBACK_URL=https://127.0.0.1:8443/`: первый локальный endpoint отклоняет соединение, второй обслуживает все запросы.
 - `bash scripts/media-resume-two-clients.sh` создаёт pending upload, выгружает процесс отправителя и дважды запускает `JobScheduler`. Проверяет доставку получателю, сохранение `dispatched` и отсутствие дубликата после повторного resume.
+- `bash scripts/state-restoration.sh` проверяет черновик и выбранный чат после `recreate`, `HOME` и настоящего `am kill`, затем запускает Activity повторно и проверяет отсутствие plaintext в logcat.
 
 Для ручного прогона реального account/draft сценария передайте `email`, `password` и `username` в `dev.securemessenger.ui.RealAccountFlowTest` через `am instrument`. Тесты `E2eeConversationTest` запускаются приёмочным скриптом, а не без параметров в общем `connectedDebugAndroidTest`.
 

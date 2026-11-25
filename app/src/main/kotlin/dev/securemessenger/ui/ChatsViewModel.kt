@@ -64,6 +64,11 @@ class ChatsViewModel @Inject constructor(
         if (accountId != null && username != null) {
             selectChat(UserResponse(accountId, username))
         }
+        viewModelScope.launch {
+            if (savedState.get<String>(CHAT_ID) == null) {
+                drafts.selectedDirect()?.let { selectChat(it) }
+            }
+        }
     }
 
     fun search(username: String) {
@@ -93,6 +98,7 @@ class ChatsViewModel @Inject constructor(
         val revision = ++draftRevision
         savedState[CHAT_ID] = user.accountId
         savedState[CHAT_USERNAME] = user.username
+        viewModelScope.launch { drafts.saveSelectedDirect(user) }
         messagesJob?.cancel()
         syncJob?.cancel()
         mutableState.value = mutableState.value.copy(selectedChat = user, messages = emptyList(), draft = "", error = null)
@@ -257,6 +263,7 @@ class ChatsViewModel @Inject constructor(
         syncJob?.cancel()
         savedState.remove<String>(CHAT_ID)
         savedState.remove<String>(CHAT_USERNAME)
+        viewModelScope.launch { drafts.clearSelectedDirect() }
         mutableState.value = mutableState.value.copy(selectedChat = null, messages = emptyList(), draft = "")
     }
 

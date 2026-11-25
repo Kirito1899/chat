@@ -57,6 +57,11 @@ class GroupsViewModel @Inject constructor(
     private var draftRevision = 0L
 
     init {
+        viewModelScope.launch {
+            if (savedState.get<String>(GROUP_ID) == null) {
+                drafts.selectedGroupId()?.let { savedState[GROUP_ID] = it }
+            }
+        }
         syncJob = viewModelScope.launch {
             while (true) {
                 try {
@@ -80,6 +85,7 @@ class GroupsViewModel @Inject constructor(
     fun selectGroup(conversation: GroupConversation) {
         val revision = ++draftRevision
         savedState[GROUP_ID] = conversation.group.groupId
+        viewModelScope.launch { drafts.saveSelectedGroup(conversation.group.groupId) }
         messagesJob?.cancel()
         mutableState.value = mutableState.value.copy(selectedGroup = conversation, messages = emptyList(), draft = "", error = null)
         messagesJob = viewModelScope.launch {
@@ -111,6 +117,7 @@ class GroupsViewModel @Inject constructor(
     fun closeGroup() {
         draftRevision++
         savedState.remove<String>(GROUP_ID)
+        viewModelScope.launch { drafts.clearSelectedGroup() }
         messagesJob?.cancel()
         mutableState.value = mutableState.value.copy(selectedGroup = null, messages = emptyList(), draft = "")
     }
@@ -277,6 +284,7 @@ class GroupsViewModel @Inject constructor(
         messagesJob?.cancel()
         draftJob?.cancel()
         savedState.remove<String>(GROUP_ID)
+        viewModelScope.launch { drafts.clearSelectedGroup() }
         mutableState.value = GroupsUiState()
     }
 

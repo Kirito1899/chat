@@ -1,5 +1,6 @@
 package dev.securemessenger.ui
 
+import android.content.Context
 import android.os.Build
 import android.view.WindowManager
 import androidx.compose.ui.test.assertIsDisplayed
@@ -12,7 +13,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
 import dev.securemessenger.MainActivity
 import org.junit.Rule
 import kotlin.test.Test
@@ -24,12 +27,16 @@ class RealAccountFlowTest {
     @Test
     fun real_login_search_and_draft_restoration() {
         val arguments = InstrumentationRegistry.getArguments()
+        File(ApplicationProvider.getApplicationContext<Context>().filesDir, "state-ready").delete()
+        keepScreenOn()
         val email = arguments.getString("email") ?: error("email instrumentation argument is required")
         val password = arguments.getString("password") ?: error("password instrumentation argument is required")
         val username = arguments.getString("username") ?: error("username instrumentation argument is required")
-
-        keepScreenOn()
         compose.waitForIdle()
+        if (compose.onAllNodesWithTag("message_input").fetchSemanticsNodes().isNotEmpty()) {
+            compose.onNodeWithText("Назад").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("chat_list").fetchSemanticsNodes().isNotEmpty() }
+        }
         if (compose.onAllNodesWithTag("chat_list").fetchSemanticsNodes().isNotEmpty()) {
             compose.onNodeWithText("Выйти").performClick()
             compose.waitUntil(5_000) {
@@ -63,10 +70,20 @@ class RealAccountFlowTest {
         compose.onNodeWithTag("message_input")
             .assertIsDisplayed()
             .assertTextEquals("Черновик после пересоздания")
+        if (arguments.getString("wait_for_kill") == "true") {
+            File(ApplicationProvider.getApplicationContext<Context>().filesDir, "state-ready").writeText("ready")
+            Thread.sleep(60_000)
+            error("Process was not killed during the restoration scenario")
+        }
     }
 
     private fun keepScreenOn() {
         compose.activityRule.scenario.onActivity { activity ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(
+                    "pm grant ${activity.packageName} android.permission.POST_NOTIFICATIONS",
+                ).close()
+            }
             activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 activity.setShowWhenLocked(true)

@@ -69,4 +69,30 @@ class SecureStorageTest {
             restored.close()
         }
     }
+
+    @Test
+    fun selected_chat_and_group_survive_database_recreation() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val name = "test-navigation-${UUID.randomUUID()}"
+        val user = dev.securemessenger.shared.UserResponse(UUID.randomUUID().toString(), "friend_user")
+        val groupId = UUID.randomUUID().toString()
+        val first = AppDatabaseFactory.create(context, name)
+        try {
+            val drafts = DraftStore(first)
+            drafts.saveSelectedDirect(user)
+            assertEquals(user, drafts.selectedDirect())
+            drafts.saveSelectedGroup(groupId)
+            assertEquals(groupId, drafts.selectedGroupId())
+            assertNull(drafts.selectedDirect())
+        } finally {
+            first.close()
+        }
+
+        val restored = AppDatabaseFactory.create(context, name)
+        try {
+            assertEquals(groupId, DraftStore(restored).selectedGroupId())
+        } finally {
+            restored.close()
+        }
+    }
 }
