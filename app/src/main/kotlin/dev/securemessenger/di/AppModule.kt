@@ -27,6 +27,7 @@ import dev.securemessenger.data.local.SessionStore
 import dev.securemessenger.data.media.MediaService
 import dev.securemessenger.data.media.RepositoryMediaApi
 import dev.securemessenger.data.remote.MessengerApi
+import dev.securemessenger.data.sync.ServerEventClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -87,6 +88,11 @@ object AppModule {
     @Singleton
     fun api(client: OkHttpClient, json: Json): MessengerApi =
         MessengerApi(BuildConfig.API_BASE_URL, client, json)
+
+    @Provides
+    @Singleton
+    fun serverEvents(client: OkHttpClient, json: Json): ServerEventClient =
+        ServerEventClient(BuildConfig.API_BASE_URL, client, json)
 
     @Provides
     @Singleton

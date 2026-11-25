@@ -122,6 +122,8 @@ class AuthRepository(
 
     suspend fun deleteMedia(mediaId: String) = authorized { api.deleteMedia(mediaId, it) }
 
+    suspend fun <T> withValidAccessToken(block: suspend (String) -> T): T = authorized(block)
+
     private suspend fun <T> authorized(block: suspend (String) -> T): T {
         val session = sessions.read() ?: throw ApiException("INVALID_CREDENTIALS", 401)
         return try {

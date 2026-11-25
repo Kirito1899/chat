@@ -92,6 +92,11 @@ class E2eeConversationTest {
 
     private fun keepScreenOn() {
         compose.activityRule.scenario.onActivity { activity ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(
+                    "pm grant ${activity.packageName} android.permission.POST_NOTIFICATIONS",
+                ).close()
+            }
             activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 activity.setShowWhenLocked(true)

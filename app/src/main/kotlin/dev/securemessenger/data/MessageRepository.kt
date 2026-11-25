@@ -240,15 +240,17 @@ class MessageRepository internal constructor(
         return payload.messageId
     }
 
-    suspend fun sync() = syncMutex.withLock {
+    suspend fun sync(): Int = syncMutex.withLock {
         e2ee.initializeDevice()
         flushOutbox()
+        var newMessages = 0
         val incoming = accounts.fetchMessages().messages
         incoming.forEach { message ->
             try {
                 val payload = e2ee.decrypt(message)
-                handlePayload(message, payload)
+                val displayable = handlePayload(message, payload)
                 accounts.markDelivered(message.messageId)
+                if (displayable) newMessages++
             } catch (_: DuplicateEnvelopeException) {
                 accounts.markDelivered(message.messageId)
             }
@@ -257,6 +259,7 @@ class MessageRepository internal constructor(
             messages.markDelivered(it)
             groupReceipts?.markDelivered(it)
         }
+        newMessages
     }
 
     suspend fun markChatRead(user: UserResponse) {
@@ -296,30 +299,36 @@ class MessageRepository internal constructor(
         flushOutbox()
     }
 
-    private suspend fun handlePayload(envelope: IncomingMessage, payload: ChatPayload) {
-        when (payload.kind) {
-            ChatPayload.TEXT, ChatPayload.MEDIA -> insertPayload(envelope, payload, "direct:${envelope.senderAccountId}")
-            ChatPayload.GROUP_TEXT, ChatPayload.GROUP_MEDIA -> {
-                val groupId = requireNotNull(payload.groupId)
-                insertPayload(envelope, payload, "group:$groupId")
-            }
-            ChatPayload.GROUP_INFO -> {
-                val group = accounts.fetchGroup(requireNotNull(payload.groupId))
-                if (group.ownerAccountId == envelope.senderAccountId) {
-                    groupInfo?.upsert(GroupInfoEntity(group.groupId, payload.body, group.ownerAccountId))
-                }
-            }
-            ChatPayload.READ_RECEIPT -> messages.updateStatusInChat(payload.messageId, "direct:${envelope.senderAccountId}", "READ")
-            ChatPayload.GROUP_READ_RECEIPT -> groupReceipts?.markRead(payload.messageId, envelope.senderDeviceId)
-            else -> throw IllegalArgumentException("Unsupported chat payload")
+    private suspend fun handlePayload(envelope: IncomingMessage, payload: ChatPayload): Boolean = when (payload.kind) {
+        ChatPayload.TEXT, ChatPayload.MEDIA -> insertPayload(envelope, payload, "direct:${envelope.senderAccountId}")
+        ChatPayload.GROUP_TEXT, ChatPayload.GROUP_MEDIA -> {
+            val groupId = requireNotNull(payload.groupId)
+            insertPayload(envelope, payload, "group:$groupId")
         }
+        ChatPayload.GROUP_INFO -> {
+            val group = accounts.fetchGroup(requireNotNull(payload.groupId))
+            if (group.ownerAccountId == envelope.senderAccountId) {
+                groupInfo?.upsert(GroupInfoEntity(group.groupId, payload.body, group.ownerAccountId))
+            }
+            false
+        }
+        ChatPayload.READ_RECEIPT -> {
+            messages.updateStatusInChat(payload.messageId, "direct:${envelope.senderAccountId}", "READ")
+            false
+        }
+        ChatPayload.GROUP_READ_RECEIPT -> {
+            groupReceipts?.markRead(payload.messageId, envelope.senderDeviceId)
+            false
+        }
+        else -> throw IllegalArgumentException("Unsupported chat payload")
     }
 
-    private suspend fun insertPayload(envelope: IncomingMessage, payload: ChatPayload, chatId: String) {
+    private suspend fun insertPayload(envelope: IncomingMessage, payload: ChatPayload, chatId: String): Boolean {
         val inserted = messages.insert(messageEntity(payload, outgoing = false, chatId = chatId, senderAccountId = envelope.senderAccountId))
         if (inserted == -1L && messages.byIdInChat(payload.messageId, chatId) == null) {
             throw IllegalStateException("Incoming message was not persisted")
         }
+        return inserted != -1L
     }
 
     private fun messageEntity(payload: ChatPayload, outgoing: Boolean, chatId: String, senderAccountId: String? = null) = MessageEntity(

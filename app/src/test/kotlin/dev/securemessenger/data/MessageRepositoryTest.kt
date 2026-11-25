@@ -106,8 +106,9 @@ class MessageRepositoryTest {
             ChatPayload(ChatPayload.TEXT, incoming.messageId, "incoming body", 123L)
         }
 
-        repository.sync()
+        val newMessages = repository.sync()
 
+        assertEquals(1, newMessages)
         assertEquals("incoming body", messages.byId(incoming.messageId)?.body)
         assertEquals(listOf(incoming.messageId), accounts.acknowledged)
         assertTrue(events.indexOf("insert:${incoming.messageId}") < events.indexOf("ack:${incoming.messageId}"))
@@ -148,7 +149,7 @@ class MessageRepositoryTest {
         accounts.incoming = listOf(incoming)
         cipher.onDecrypt = { throw DuplicateEnvelopeException() }
 
-        repository.sync()
+        assertEquals(0, repository.sync())
 
         assertEquals(listOf(incoming.messageId), accounts.acknowledged)
     }
@@ -161,7 +162,7 @@ class MessageRepositoryTest {
         accounts.incoming = listOf(incoming)
         cipher.onDecrypt = { ChatPayload(ChatPayload.READ_RECEIPT, originalId, createdAt = 124L) }
 
-        repository.sync()
+        assertEquals(0, repository.sync())
 
         assertEquals("READ", messages.byId(originalId)?.status)
         assertEquals(listOf(incoming.messageId), accounts.acknowledged)
@@ -350,7 +351,7 @@ class MessageRepositoryTest {
             accounts.incoming = listOf(
                 IncomingMessage(UUID.randomUUID().toString(), sender, UUID.randomUUID().toString(), 2, "ciphertext", 1, group.groupId, payload.messageId),
             )
-            repository.sync()
+            assertEquals(0, repository.sync())
             accounts.incoming = emptyList()
         }
         receiveTitle(owner, "Private group")
