@@ -13,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
@@ -29,6 +30,7 @@ class RealAccountFlowTest {
         val arguments = InstrumentationRegistry.getArguments()
         File(ApplicationProvider.getApplicationContext<Context>().filesDir, "state-ready").delete()
         keepScreenOn()
+        compose.waitUntil(20_000) { compose.activityRule.scenario.state == Lifecycle.State.RESUMED }
         val email = arguments.getString("email") ?: error("email instrumentation argument is required")
         val password = arguments.getString("password") ?: error("password instrumentation argument is required")
         val username = arguments.getString("username") ?: error("username instrumentation argument is required")
@@ -70,6 +72,14 @@ class RealAccountFlowTest {
         compose.onNodeWithTag("message_input")
             .assertIsDisplayed()
             .assertTextEquals("Черновик после пересоздания")
+        if (arguments.getString("show_list") == "true" || arguments.getString("show_auth") == "true") {
+            compose.onNodeWithText("Назад").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("chat_list").fetchSemanticsNodes().isNotEmpty() }
+        }
+        if (arguments.getString("show_auth") == "true") {
+            compose.onNodeWithText("Выйти").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("email_input").fetchSemanticsNodes().isNotEmpty() }
+        }
         if (arguments.getString("wait_for_kill") == "true") {
             File(ApplicationProvider.getApplicationContext<Context>().filesDir, "state-ready").writeText("ready")
             Thread.sleep(60_000)

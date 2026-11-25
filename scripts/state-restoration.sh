@@ -28,6 +28,8 @@ verify_restored() {
     return 1
 }
 
+"$ADB" shell input keyevent KEYCODE_WAKEUP
+"$ADB" shell wm dismiss-keyguard
 "$ADB" shell "am instrument -w -r -e class dev.securemessenger.ui.RealAccountFlowTest -e email phone-1795585309@example.com -e password Device-UI-Password-1 -e username phone_95585316 -e wait_for_kill true $PACKAGE.test/androidx.test.runner.AndroidJUnitRunner" > .local/state-first.log 2>&1 &
 FIRST_PID=$!
 for _ in {1..45}; do

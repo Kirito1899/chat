@@ -3,6 +3,7 @@ package dev.securemessenger.ui
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,12 +15,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -33,6 +40,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -127,7 +137,7 @@ fun AdaptiveApp() {
         }
     }
 
-    Surface(Modifier.fillMaxSize()) {
+    Surface(Modifier.fillMaxSize().safeDrawingPadding()) {
     if (chatsState.safetyNumber != null) {
         SafetyNumberScreen(
             safetyNumber = chatsState.safetyNumber!!,
@@ -231,7 +241,7 @@ fun HomeLayout(
     if (isWide) {
         Row(Modifier.fillMaxSize()) {
             ChatListPane(
-                modifier = Modifier.width(340.dp).testTag("chat_list"),
+                modifier = Modifier.width(340.dp).testTag("chat_list_pane"),
                 username = session.username,
                 searchResult = searchResult,
                 selectedChat = selectedChat,
@@ -263,7 +273,7 @@ fun HomeLayout(
         }
     } else if (selectedChat == null && selectedGroup == null) {
         ChatListPane(
-            modifier = Modifier.fillMaxSize().testTag("chat_list"),
+            modifier = Modifier.fillMaxSize().testTag("chat_list_pane"),
             username = session.username,
             searchResult = searchResult,
             selectedChat = null,
@@ -314,9 +324,10 @@ private fun ChatListPane(
     var search by rememberSaveable { mutableStateOf("") }
     Column(modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
+            ChatAvatar(username)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text("Чаты", style = MaterialTheme.typography.headlineSmall)
-                Text("@$username", style = MaterialTheme.typography.bodySmall)
+                Text("@$username", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             TextButton(onClick = onLogout) { Text("Выйти") }
         }
@@ -324,21 +335,29 @@ private fun ChatListPane(
             value = search,
             onValueChange = { search = it },
             label = { Text("Поиск по @username") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             singleLine = true,
+            shape = MaterialTheme.shapes.medium,
             modifier = Modifier.fillMaxWidth().testTag("username_search"),
         )
-        Button(onClick = { onSearch(search) }, enabled = !busy && search.isNotBlank(), modifier = Modifier.fillMaxWidth().testTag("search_button")) {
+        Button(onClick = { onSearch(search) }, enabled = !busy && search.isNotBlank(), modifier = Modifier.fillMaxWidth().height(48.dp).testTag("search_button")) {
             Text("Найти пользователя")
         }
         if (busy) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
         error?.let { Text(chatErrorText(it), color = MaterialTheme.colorScheme.error) }
         searchResult?.let { user ->
-            Card(Modifier.fillMaxWidth().testTag("search_result").clickable { onSelect(user) }) {
-                Text("@${user.username}", Modifier.padding(16.dp))
+            Card(
+                Modifier.fillMaxWidth().testTag("search_result").clickable { onSelect(user) },
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+            ) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    ChatAvatar(user.username)
+                    Text("@${user.username}", Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
+                }
             }
         }
         HorizontalDivider()
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("chat_list"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             selectedChat?.let { chat ->
                 item {
                     Card(Modifier.fillMaxWidth().clickable { onSelect(chat) }) {
@@ -346,12 +365,13 @@ private fun ChatListPane(
                     }
                 }
             }
-            if (selectedChat == null) {
+            if (selectedChat == null && groups.isEmpty()) {
                 item { Text("Чатов пока нет. Найдите пользователя по юзернейму.") }
             }
             item {
-                GroupListSection(groups, selectedGroup, onSelectGroup, onCreateGroup, groupError)
+                GroupCreationSection(groups.isNotEmpty(), selectedGroup, onCreateGroup, groupError)
             }
+            groupCards(groups, selectedGroup, onSelectGroup)
         }
     }
 }
@@ -378,7 +398,8 @@ private fun ChatDetail(
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             if (showBack) TextButton(onClick = onBack) { Text("Назад") }
-            Text("@${chat.username}", style = MaterialTheme.typography.titleLarge)
+            ChatAvatar(chat.username)
+            Text("@${chat.username}", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 12.dp))
         }
         TextButton(onClick = onOpenSafety, modifier = Modifier.testTag("open_safety")) {
             Text(if (identityChanged) "Ключ изменился. Проверить safety number" else "Проверить safety number")
@@ -402,7 +423,7 @@ private fun ChatDetail(
 }
 
 @Composable
-internal fun MessageHistory(messages: List<MessageEntity>) {
+internal fun MessageHistory(messages: List<MessageEntity>, senderNames: Map<String, String> = emptyMap()) {
     if (messages.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
             Text("Сообщений пока нет", style = MaterialTheme.typography.bodyMedium)
@@ -420,38 +441,11 @@ internal fun MessageHistory(messages: List<MessageEntity>) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(messages, key = { it.messageId }) { message ->
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = if (message.outgoing) Alignment.End else Alignment.Start,
-            ) {
-                Card {
-                    Column(Modifier.padding(12.dp)) {
-                        if (message.mediaJson != null) {
-                            MediaMessageBubble(message.mediaJson, message.body)
-                        } else {
-                            Text(
-                                message.body,
-                                modifier = Modifier.testTag(
-                                    when {
-                                        !message.outgoing -> "incoming_message_body"
-                                        message.messageId == latestOutgoingId -> "latest_outgoing_body"
-                                        else -> "outgoing_message_body"
-                                    },
-                                ),
-                            )
-                        }
-                        if (message.outgoing) {
-                            Text(
-                                message.status,
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.testTag(
-                                    if (message.messageId == latestOutgoingId) "latest_outgoing_status" else "message_status",
-                                ),
-                            )
-                        }
-                    }
-                }
-            }
+            MessageBubble(
+                message = message,
+                latestOutgoing = message.messageId == latestOutgoingId,
+                senderName = senderNames[message.senderAccountId],
+            )
         }
     }
 }
@@ -467,35 +461,53 @@ internal fun Composer(
     busy: Boolean = false,
     mediaProgress: String? = null,
 ) {
-    Column(Modifier.fillMaxWidth().padding(16.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            AttachmentControls(onPick)
-            OutlinedTextField(
-                value = draft,
-                onValueChange = onDraftChange,
-                placeholder = { Text("Черновик сообщения") },
-                modifier = Modifier.weight(1f).testTag("message_input"),
-                maxLines = 4,
-            )
-            IconButton(onClick = onVoice, modifier = Modifier.testTag("voice_button")) {
-                Icon(if (isRecording) Icons.Default.Stop else Icons.Default.Mic, contentDescription = if (isRecording) "Остановить запись" else "Записать голосовое")
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shadowElevation = 4.dp) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                AttachmentControls(onPick)
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = onDraftChange,
+                    placeholder = { Text("Черновик сообщения") },
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.weight(1f).testTag("message_input"),
+                    maxLines = 4,
+                )
+                IconButton(onClick = onVoice, modifier = Modifier.testTag("voice_button")) {
+                    Icon(if (isRecording) Icons.Default.Stop else Icons.Default.Mic, contentDescription = if (isRecording) "Остановить запись" else "Записать голосовое")
+                }
+                IconButton(
+                    onClick = { onSend(draft) },
+                    enabled = !busy && draft.isNotBlank(),
+                    modifier = Modifier.padding(start = 8.dp).size(48.dp).background(
+                        if (!busy && draft.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                        CircleShape,
+                    ).testTag("send_button"),
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Отправить",
+                        tint = if (!busy && draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            Button(
-                onClick = { onSend(draft) },
-                enabled = !busy && draft.isNotBlank(),
-                modifier = Modifier.padding(start = 8.dp).testTag("send_button"),
-            ) {
-                Text("Отправить")
-            }
+            mediaProgress?.let { Text("Загружено $it байт", style = MaterialTheme.typography.bodySmall) }
         }
-        mediaProgress?.let { Text("Загружено $it байт", style = MaterialTheme.typography.bodySmall) }
     }
 }
 
 @Composable
 private fun EmptyChat() {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("Выберите чат или найдите пользователя")
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                Icons.Default.Forum,
+                contentDescription = null,
+                modifier = Modifier.size(56.dp).padding(bottom = 12.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Text("Выберите чат или найдите пользователя", style = MaterialTheme.typography.bodyLarge)
+        }
     }
 }
 

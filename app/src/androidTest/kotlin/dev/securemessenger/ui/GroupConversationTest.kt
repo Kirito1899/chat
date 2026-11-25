@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
+import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -21,6 +22,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModelProvider
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -269,15 +271,66 @@ class GroupConversationTest {
             compose.onNodeWithTag("password_input").performTextClearance()
             compose.onNodeWithTag("password_input").performTextInput(password)
             compose.onNodeWithTag("primary_action").performClick()
-            compose.waitUntil(20_000) { compose.onAllNodesWithTag("chat_list").fetchSemanticsNodes().isNotEmpty() }
+            try {
+                compose.waitUntil(20_000) {
+                    compose.onAllNodesWithTag("chat_list").fetchSemanticsNodes().isNotEmpty()
+                }
+            } catch (error: ComposeTimeoutException) {
+                compose.activityRule.scenario.onActivity { activity ->
+                    val state = ViewModelProvider(activity)[AuthViewModel::class.java].state.value
+                    InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply {
+                        putString("login_timeout", "destination=${state.destination}; error=${state.error}; busy=${state.busy}; session=${state.session != null}")
+                    })
+                }
+                throw error
+            }
         }
     }
 
-    private fun openGroup(title: String, email: String, password: String) {
+    private suspend fun openGroup(title: String, email: String, password: String) {
         ensureLogin(email, password)
         if (compose.onAllNodesWithTag("group_members_button").fetchSemanticsNodes().isNotEmpty()) return
-        compose.waitUntil(15_000) { compose.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText(title).performClick()
+        val groups = entryPoint(email, password).groupChats().list()
+        InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply { putString("group_count", groups.size.toString()) })
+        val groupId = groups.single { it.title == title }.group.groupId
+        InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply { putString("group_id", groupId) })
+        lateinit var viewModel: GroupsViewModel
+        compose.activityRule.scenario.onActivity { activity ->
+            viewModel = ViewModelProvider(activity)[GroupsViewModel::class.java]
+        }
+        try {
+            withTimeout(30_000) {
+                viewModel.state.filter { state -> state.groups.any { it.group.groupId == groupId } }.first()
+            }
+        } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
+            throw AssertionError("Group UI list was not loaded; error=${viewModel.state.value.error}", error)
+        }
+        val ids = viewModel.state.value.groups.map { it.group.groupId }
+        InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply { putString("groups_ui_ids", ids.joinToString()) })
+        compose.waitForIdle()
+        var scrollError: String? = null
+        compose.waitUntil(15_000) {
+            try {
+                compose.onNodeWithTag("chat_list").performScrollToNode(hasTestTag("group_item_$groupId"))
+                true
+            } catch (error: Throwable) {
+                scrollError = error.message
+                false
+            }
+        }
+        InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply { putString("scroll_error", scrollError ?: "none") })
+        compose.onNodeWithTag("group_item_$groupId").performClick()
+        InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply { putString("group_clicked", "true") })
+        compose.activityRule.scenario.onActivity { activity ->
+            val selected = ViewModelProvider(activity)[GroupsViewModel::class.java].state.value
+            InstrumentationRegistry.getInstrumentation().sendStatus(
+                0,
+                Bundle().apply {
+                    putString("selected_group", selected.selectedGroup?.group?.groupId ?: "null")
+                    putString("groups_ui_count", selected.groups.size.toString())
+                },
+            )
+        }
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("group_members_button").fetchSemanticsNodes().isNotEmpty() }
     }
 

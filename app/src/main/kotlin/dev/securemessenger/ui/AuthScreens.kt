@@ -1,5 +1,6 @@
 package dev.securemessenger.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -7,16 +8,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,6 +33,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -148,13 +157,33 @@ private fun AuthFrame(title: String, state: AuthUiState, content: @Composable ()
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(title, style = MaterialTheme.typography.headlineMedium)
-            state.error?.let { Text(errorText(it), color = MaterialTheme.colorScheme.error) }
-            state.info?.let { Text(infoText(it), color = MaterialTheme.colorScheme.primary) }
-            if (state.busy) CircularProgressIndicator()
-            content()
-            HorizontalDivider()
-            Text("Соединение защищено TLS. Сообщения появятся в E2EE-приращении.", style = MaterialTheme.typography.bodySmall)
+            Box(
+                Modifier.size(72.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
+            }
+            Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+            Text(
+                "Личные и групповые разговоры со сквозным шифрованием",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large, shadowElevation = 2.dp) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    state.error?.let { Text(errorText(it), color = MaterialTheme.colorScheme.error) }
+                    state.info?.let { Text(infoText(it), color = MaterialTheme.colorScheme.primary) }
+                    if (state.busy) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
+                    content()
+                }
+            }
+            Text(
+                "Сообщения и медиа защищены сквозным шифрованием.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }
@@ -167,6 +196,7 @@ private fun EmailField(value: String, onChange: (String) -> Unit) {
         label = { Text("Электронная почта") },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
         singleLine = true,
+        shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth().testTag("email_input"),
     )
 }
@@ -184,13 +214,14 @@ private fun PasswordField(value: String, onChange: (String) -> Unit, label: Stri
             TextButton(onClick = { visible = !visible }) { Text(if (visible) "Скрыть" else "Показать") }
         },
         singleLine = true,
+        shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth().testTag("password_input"),
     )
 }
 
 @Composable
 private fun PrimaryButton(text: String, busy: Boolean, valid: Boolean = true, onClick: () -> Unit) {
-    Button(onClick = onClick, enabled = !busy && valid, modifier = Modifier.fillMaxWidth().testTag("primary_action")) {
+    Button(onClick = onClick, enabled = !busy && valid, modifier = Modifier.fillMaxWidth().height(52.dp).testTag("primary_action")) {
         Text(text)
     }
 }

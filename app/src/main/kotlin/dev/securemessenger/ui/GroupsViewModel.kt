@@ -55,34 +55,21 @@ class GroupsViewModel @Inject constructor(
     private var syncJob: Job? = null
     private var draftJob: Job? = null
     private var draftRevision = 0L
+    private var restoreSelection = true
 
     init {
         viewModelScope.launch {
             if (savedState.get<String>(GROUP_ID) == null) {
-                drafts.selectedGroupId()?.let { savedState[GROUP_ID] = it }
-            }
-        }
-        syncJob = viewModelScope.launch {
-            while (true) {
-                try {
-                    refreshGroups()
-                    messages.sync()
-                    mutableState.value.selectedGroup?.let { messages.markGroupRead(it.group) }
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (_: IOException) {
-                } catch (_: ApiException) {
-                } catch (_: IdentityChangedException) {
-                    mutableState.value = mutableState.value.copy(error = "GROUP_IDENTITY_CHANGED")
-                } catch (_: Exception) {
-                    mutableState.value = mutableState.value.copy(error = "SYNC_FAILED")
+                drafts.selectedGroupId()?.let {
+                    if (restoreSelection && savedState.get<String>(GROUP_ID) == null) savedState[GROUP_ID] = it
                 }
-                delay(5_000)
             }
         }
+        startSyncLoop()
     }
 
     fun selectGroup(conversation: GroupConversation) {
+        restoreSelection = false
         val revision = ++draftRevision
         savedState[GROUP_ID] = conversation.group.groupId
         viewModelScope.launch { drafts.saveSelectedGroup(conversation.group.groupId) }
@@ -115,6 +102,7 @@ class GroupsViewModel @Inject constructor(
     }
 
     fun closeGroup() {
+        restoreSelection = false
         draftRevision++
         savedState.remove<String>(GROUP_ID)
         viewModelScope.launch { drafts.clearSelectedGroup() }
@@ -279,6 +267,7 @@ class GroupsViewModel @Inject constructor(
     }
 
     fun reset() {
+        restoreSelection = false
         voiceRecording.cancel()
         syncJob?.cancel()
         messagesJob?.cancel()
@@ -286,6 +275,29 @@ class GroupsViewModel @Inject constructor(
         savedState.remove<String>(GROUP_ID)
         viewModelScope.launch { drafts.clearSelectedGroup() }
         mutableState.value = GroupsUiState()
+        startSyncLoop()
+    }
+
+    private fun startSyncLoop() {
+        if (syncJob?.isActive == true) return
+        syncJob = viewModelScope.launch {
+            while (true) {
+                try {
+                    refreshGroups()
+                    messages.sync()
+                    mutableState.value.selectedGroup?.let { messages.markGroupRead(it.group) }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: IOException) {
+                } catch (_: ApiException) {
+                } catch (_: IdentityChangedException) {
+                    mutableState.value = mutableState.value.copy(error = "GROUP_IDENTITY_CHANGED")
+                } catch (_: Exception) {
+                    mutableState.value = mutableState.value.copy(error = "SYNC_FAILED")
+                }
+                delay(5_000)
+            }
+        }
     }
 
     private suspend fun sendMediaInput(selected: GroupConversation, input: MediaInput) {
@@ -307,7 +319,8 @@ class GroupsViewModel @Inject constructor(
 
     private suspend fun refreshGroups() {
         val list = groupChats.list()
-        val selectedId = mutableState.value.selectedGroup?.group?.groupId ?: savedState.get<String>(GROUP_ID)
+        val selectedId = mutableState.value.selectedGroup?.group?.groupId
+            ?: savedState.get<String>(GROUP_ID).takeIf { restoreSelection }
         val selected = list.find { it.group.groupId == selectedId }
         mutableState.value = mutableState.value.copy(groups = list)
         when {

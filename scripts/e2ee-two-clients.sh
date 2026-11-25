@@ -43,6 +43,8 @@ run_test() {
         printf -v escaped '%q' "$argument"
         command+=" $escaped"
     done
+    "$ADB" shell input keyevent KEYCODE_WAKEUP
+    "$ADB" shell wm dismiss-keyguard
     output=$(printf '%s\n' "$command" | "$ADB" shell)
     printf '%s\n' "$output"
     case "$output" in

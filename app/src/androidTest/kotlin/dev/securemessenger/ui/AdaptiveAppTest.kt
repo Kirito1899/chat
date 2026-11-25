@@ -3,13 +3,18 @@ package dev.securemessenger.ui
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import dev.securemessenger.data.local.MessageEntity
 import dev.securemessenger.shared.TokenResponse
 import dev.securemessenger.shared.UserResponse
+import dev.securemessenger.shared.GroupResponse
+import dev.securemessenger.shared.GroupMemberResponse
+import dev.securemessenger.data.GroupConversation
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.runner.RunWith
@@ -126,9 +131,49 @@ class AdaptiveAppTest {
     }
 
     @Test
+    fun group_card_click_selects_group() {
+        val groups = List(30) { index ->
+            GroupConversation(
+                GroupResponse(
+                    "group-$index",
+                    session.accountId,
+                    listOf(GroupMemberResponse(session.accountId, session.username, "OWNER")),
+                ),
+                "Private group $index",
+            )
+        }
+        val target = groups.last()
+        var selected: GroupConversation? = null
+        compose.setContent {
+            HomeLayout(
+                isWide = false,
+                fold = FoldState(),
+                session = session,
+                searchResult = null,
+                selectedChat = null,
+                draft = "",
+                busy = false,
+                error = null,
+                onSearch = {},
+                onSelect = {},
+                onCloseChat = {},
+                onDraftChange = {},
+                onLogout = {},
+                groups = groups,
+                onSelectGroup = { selected = it },
+            )
+        }
+
+        compose.onNodeWithTag("chat_list").performScrollToNode(hasTestTag("group_item_${target.group.groupId}"))
+        compose.onNodeWithTag("group_item_${target.group.groupId}").performClick()
+
+        assertEquals(target, selected)
+    }
+
+    @Test
     fun group_key_readiness_error_is_visible() {
         compose.setContent {
-            GroupListSection(emptyList(), null, {}, { _, _ -> }, "RECIPIENT_NOT_READY")
+            GroupCreationSection(false, null, { _, _ -> }, "RECIPIENT_NOT_READY")
         }
 
         compose.onNodeWithTag("group_error").assertIsDisplayed()

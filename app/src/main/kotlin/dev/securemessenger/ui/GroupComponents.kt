@@ -10,8 +10,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -27,16 +30,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import dev.securemessenger.data.GroupConversation
 import dev.securemessenger.data.local.MessageEntity
 import dev.securemessenger.data.media.MediaKind
 import dev.securemessenger.shared.GroupMemberResponse
 
 @Composable
-fun GroupListSection(
-    groups: List<GroupConversation>,
+fun GroupCreationSection(
+    hasGroups: Boolean,
     selectedGroup: GroupConversation?,
-    onSelect: (GroupConversation) -> Unit,
     onCreate: (String, List<String>) -> Unit,
     error: String?,
 ) {
@@ -81,20 +84,30 @@ fun GroupListSection(
     error?.let {
         Text(groupErrorText(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("group_error"))
     }
-    if (groups.isEmpty()) {
+    if (!hasGroups) {
         Text("Групп пока нет", style = MaterialTheme.typography.bodySmall)
-    } else {
-        groups.forEach { conversation ->
-            Card(
-                Modifier.fillMaxWidth()
-                    .testTag("group_item_${conversation.group.groupId}")
-                    .clickable { onSelect(conversation) },
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Text(conversation.title, style = MaterialTheme.typography.titleMedium)
-                    Text("${conversation.group.members.size} участников", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+fun LazyListScope.groupCards(
+    groups: List<GroupConversation>,
+    selectedGroup: GroupConversation?,
+    onSelect: (GroupConversation) -> Unit,
+) {
+    items(groups, key = { it.group.groupId }) { conversation ->
+        Card(
+            Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                .testTag("group_item_${conversation.group.groupId}")
+                .clickable { onSelect(conversation) },
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        ) {
+            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                ChatAvatar(conversation.title)
+                Column(Modifier.padding(start = 12.dp)) {
+                    Text(conversation.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${conversation.group.members.size} участников", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (selectedGroup?.group?.groupId == conversation.group.groupId) {
-                        Text("Выбрана", style = MaterialTheme.typography.labelSmall)
+                        Text("Выбрана", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -127,9 +140,10 @@ fun GroupChatDetail(
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             if (showBack) TextButton(onClick = onBack) { Text("Назад") }
-            Column(Modifier.weight(1f)) {
-                Text(conversation.title, style = MaterialTheme.typography.titleLarge)
-                Text("${conversation.group.members.size} участников", style = MaterialTheme.typography.bodySmall)
+            ChatAvatar(conversation.title)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(conversation.title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${conversation.group.members.size} участников", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             TextButton(onClick = { showMembers = !showMembers }, modifier = Modifier.testTag("group_members_button")) {
                 Text("Участники")
@@ -142,7 +156,7 @@ fun GroupChatDetail(
         HorizontalDivider()
         if (fold.halfOpened && fold.horizontal) {
             Box(Modifier.weight(1f).fillMaxWidth().testTag("flex_content")) {
-                MessageHistory(messages)
+                MessageHistory(messages, conversation.group.members.associate { it.accountId to it.username })
             }
             HorizontalDivider()
             Box(Modifier.weight(1f).fillMaxWidth().testTag("flex_input")) {
@@ -150,7 +164,7 @@ fun GroupChatDetail(
             }
         } else {
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                MessageHistory(messages)
+                MessageHistory(messages, conversation.group.members.associate { it.accountId to it.username })
             }
             Composer(draft, { onDraftChange(it) }, { onSend() }, onPick, onVoice, isRecording, busy, mediaProgress)
         }
