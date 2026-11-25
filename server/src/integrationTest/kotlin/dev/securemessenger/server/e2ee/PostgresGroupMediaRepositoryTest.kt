@@ -7,7 +7,12 @@ import dev.securemessenger.server.media.MediaAccessException
 import dev.securemessenger.server.media.MediaConflictException
 import dev.securemessenger.server.media.MediaNotFoundException
 import dev.securemessenger.server.storage.DatabaseFactory
+import dev.securemessenger.shared.DeviceKeysUpload
+import dev.securemessenger.shared.KyberPreKeyDto
 import dev.securemessenger.shared.MEDIA_UPLOAD_CHUNK_SIZE
+import dev.securemessenger.shared.PreKeyDto
+import dev.securemessenger.shared.SignedPreKeyDto
+import dev.securemessenger.shared.ValidationException
 import dev.securemessenger.shared.MediaUploadRequest
 import dev.securemessenger.shared.SendGroupMessageRequest
 import dev.securemessenger.shared.SendMessageRequest
@@ -218,7 +223,27 @@ class PostgresGroupMediaRepositoryTest {
         )
     }
 
-    private fun account(username: String): Pair<UUID, UUID> {
+    @Test
+    fun `members need published keys before group creation or invitation`() {
+        val fixture = fixture("readiness")
+        val unavailable = account("unready_${sequence.incrementAndGet()}", publishKeys = false)
+
+        val creation = assertFailsWith<ValidationException> {
+            groups.create(fixture.owner, listOf("unready_${sequence.get()}"))
+        }
+        assertEquals("RECIPIENT_NOT_READY", creation.code)
+        assertTrue(groups.list(fixture.owner).isEmpty())
+
+        val group = groups.create(fixture.owner, listOf(fixture.memberUsername))
+        val invitation = assertFailsWith<ValidationException> {
+            groups.addMembers(fixture.owner, UUID.fromString(group.groupId), listOf("unready_${sequence.get()}"))
+        }
+        assertEquals("RECIPIENT_NOT_READY", invitation.code)
+        assertEquals(2, groups.getForMember(fixture.owner, UUID.fromString(group.groupId))?.members?.size)
+        assertTrue(groups.list(unavailable.first).isEmpty())
+    }
+
+    private fun account(username: String, publishKeys: Boolean = true): Pair<UUID, UUID> {
         val accountId = UUID.randomUUID()
         val deviceId = UUID.randomUUID()
         dataSource.connection.use { connection ->
@@ -234,6 +259,25 @@ class PostgresGroupMediaRepositoryTest {
                 it.setObject(2, accountId)
                 it.executeUpdate()
             }
+        }
+        if (publishKeys) {
+            val ec = Base64.getEncoder().encodeToString(
+                MessageDigest.getInstance("SHA-256").digest(accountId.toString().toByteArray()).copyOf(33),
+            )
+            val kem = encode(1569, 2)
+            val signature = encode(64, 4)
+            e2ee.storeDeviceKeys(
+                accountId,
+                deviceId,
+                DeviceKeysUpload(
+                    registrationId = accountId.hashCode().and(16383).coerceAtLeast(1),
+                    identityKey = ec,
+                    signedPreKey = SignedPreKeyDto(1, ec, signature),
+                    preKeys = listOf(PreKeyDto(1, ec)),
+                    kyberPreKeys = listOf(KyberPreKeyDto(2, kem, signature)),
+                    lastResortKyberPreKey = KyberPreKeyDto(3, kem, signature),
+                ),
+            )
         }
         return accountId to deviceId
     }

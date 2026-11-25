@@ -121,6 +121,15 @@ class JdbcGroupRepository(private val dataSource: DataSource) : GroupRepository 
                 { it.getObject(1, UUID::class.java) },
                 username,
             ) ?: throw GroupMemberNotFoundException()
+            connection.queryOne(
+                """
+                SELECT 1 FROM device_keys dk
+                JOIN devices d ON d.id = dk.device_id
+                WHERE dk.account_id = ? AND d.revoked_at IS NULL
+                """,
+                { it.getInt(1) },
+                accountId,
+            ) ?: throw ValidationException("RECIPIENT_NOT_READY")
             username to accountId
         }
     }

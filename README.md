@@ -1,6 +1,6 @@
 # Private Messenger
 
-Закрытый Android-мессенджер с сервером на Kotlin. Реализованы приращения 1 и 2: аккаунты по приглашению, email verification/recovery, username search, одно активное устройство на аккаунт и личные сообщения со сквозным шифрованием (E2EE).
+Закрытый Android-мессенджер с сервером на Kotlin. Реализованы приращения 1–3: аккаунты по приглашению, email verification/recovery, username search, одно активное устройство на аккаунт, личные и групповые сообщения со сквозным шифрованием (E2EE), зашифрованные медиа.
 
 ## Что работает
 
@@ -12,8 +12,13 @@
 - Safety number из 60 цифр и QR. Смена identity блокирует отправку; пользователь видит fingerprint нового bundle и принимает именно просмотренный bundle после проверки подписей.
 - Восстановление сессии и черновиков после пересоздания Activity/перезапуска приложения, автопрокрутка к последнему сообщению, адаптивные layouts и Flex Mode.
 - HTTPS с проверкой CA/hostname. Dev APK использует локальный dev CA; cleartext отключён.
+- Группы до 50 участников с pairwise Signal E2EE и отдельным envelope для каждого получателя. Название группы находится только в E2EE payload; владелец управляет участниками. Для добавления участник должен хотя бы раз войти и опубликовать ключи, иначе сервер отклоняет операцию.
+- Новый участник не получает прежнюю историю. После удаления участника сервер запрещает ему новые сообщения и удаляет его недоставленные group envelopes.
+- Групповые статусы доставки/прочтения по каждому получателю. Открытие группы сразу отмечает входящие прочитанными; одновременные вызовы не создают повторные receipts. Каждый receipt имеет отдельный envelope UUID.
+- Фото, видео, произвольные файлы, стикеры и голосовые. Файл шифруется новым AES-256-GCM ключом по 64-KiB chunks с аутентификацией порядка и длины; ключ, имя и MIME передаются только в E2EE payload.
+- Возобновляемые upload/download, streaming-расшифровка для Media3, повреждённый ciphertext отклоняется. Максимум 512 MiB, TTL 7 дней, удаление владельцем.
 
-Группы, медиа/голосовые/стикеры, фоновые push/fallback и production deployment относятся к следующим приращениям и пока не заявляются как готовые.
+Фоновые push/fallback, резервные endpoints и production deployment относятся к следующим этапам и пока не заявляются как готовые.
 
 ## Требования
 
@@ -64,6 +69,7 @@ PostgreSQL integration tests используют Zonky с настоящими 
 - `bash scripts/smoke-test.sh` проверяет admin invite → register → Mailpit verify → login → search → recovery → reset → login.
 - `bash scripts/provision-device-account.sh` создаёт отдельный тестовый аккаунт для свободного device ID.
 - `bash scripts/e2ee-two-clients.sh` собирает и устанавливает два изолированных application ID на одном телефоне, проверяет PQXDH сообщения в обе стороны, offline-доставку, safety number, ciphertext в PostgreSQL, отсутствие plaintext и крэшей в logcat. Аккаунты должны соответствовать device ID установок; для другой dev-базы задайте `A_EMAIL`, `A_USER`, `B_EMAIL`, `B_USER`, `E2EE_TEST_PASSWORD`.
+- `bash scripts/group-three-clients.sh` проверяет три изолированных клиента: приглашения с pairwise E2EE, отсутствие прежней истории у нового участника, PNG/MP4/WAV/TXT, group receipts, удаление участника и offline delivery. Сначала каждый клиент публикует свои ключи. `CLIENT_A_SUFFIX`, `CLIENT_B_SUFFIX`, `CLIENT_C_SUFFIX` задают application ID; `A_EMAIL`, `A_USER`, `B_EMAIL`, `B_USER`, `C_EMAIL`, `C_USER` — соответствующие тестовые аккаунты. Для новых installation ID нужны новые тестовые аккаунты или явно отозванные старые тестовые устройства: ограничение `DEVICE_LIMIT` не обходится.
 
 Для ручного прогона реального account/draft сценария передайте `email`, `password` и `username` в `dev.securemessenger.ui.RealAccountFlowTest` через `am instrument`. Тесты `E2eeConversationTest` запускаются приёмочным скриптом, а не без параметров в общем `connectedDebugAndroidTest`.
 

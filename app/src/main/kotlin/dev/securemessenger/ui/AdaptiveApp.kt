@@ -232,6 +232,7 @@ fun HomeLayout(
                 onLogout = onLogout,
                 groups = groups,
                 selectedGroup = selectedGroup,
+                groupError = groupError,
                 onSelectGroup = onSelectGroup,
                 onCreateGroup = onCreateGroup,
             )
@@ -263,6 +264,7 @@ fun HomeLayout(
             onLogout = onLogout,
             groups = groups,
             selectedGroup = selectedGroup,
+            groupError = groupError,
             onSelectGroup = onSelectGroup,
             onCreateGroup = onCreateGroup,
         )
@@ -295,6 +297,7 @@ private fun ChatListPane(
     onLogout: () -> Unit,
     groups: List<GroupConversation> = emptyList(),
     selectedGroup: GroupConversation? = null,
+    groupError: String? = null,
     onSelectGroup: (GroupConversation) -> Unit = {},
     onCreateGroup: (String, List<String>) -> Unit = { _, _ -> },
 ) {
@@ -337,7 +340,7 @@ private fun ChatListPane(
                 item { Text("Чатов пока нет. Найдите пользователя по юзернейму.") }
             }
             item {
-                GroupListSection(groups, selectedGroup, onSelectGroup, onCreateGroup)
+                GroupListSection(groups, selectedGroup, onSelectGroup, onCreateGroup, groupError)
             }
         }
     }
@@ -403,7 +406,7 @@ internal fun MessageHistory(messages: List<MessageEntity>) {
     }
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier.fillMaxSize().padding(16.dp).testTag("message_history"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(messages, key = { it.messageId }) { message ->

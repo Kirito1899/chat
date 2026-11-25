@@ -27,7 +27,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.util.Base64
@@ -288,6 +290,51 @@ class MessageRepositoryTest {
     }
 
     @Test
+    fun `stale conflicting outbox does not block other recipients`() = runTest {
+        val owner = UUID.randomUUID().toString()
+        val first = GroupMemberResponse(UUID.randomUUID().toString(), "first", "MEMBER")
+        val stale = GroupMemberResponse(UUID.randomUUID().toString(), "stale", "MEMBER")
+        val group = GroupResponse(UUID.randomUUID().toString(), owner, listOf(GroupMemberResponse(owner, "owner", "OWNER"), first, stale))
+        val staleDevice = UUID.randomUUID().toString()
+        accounts.localAccountId = owner
+        cipher.deviceForAccount = { account -> if (account == stale.accountId) staleDevice else UUID.randomUUID().toString() }
+        accounts.onGroupSend = { _, request ->
+            if (request.envelope.recipientDeviceId == staleDevice) throw ApiException("MESSAGE_CONFLICT", 409)
+        }
+        val receipts = FakeGroupReceiptDao()
+        repository = MessageRepository(messages, outboxes, cipher, accounts, json, FakeGroupInfoDao(), receipts) { block -> block() }
+
+        repository.sendGroupText(group, "new valid message")
+
+        assertTrue(outboxes.items.isEmpty())
+        assertEquals("SKIPPED", receipts.items.values.single { it.recipientDeviceId == staleDevice }.state)
+        assertEquals("SENT", repository.observeGroupMessages(group.groupId).first().single().status)
+    }
+
+    @Test
+    fun `concurrent group reads emit only one receipt`() = runTest {
+        val owner = UUID.randomUUID().toString()
+        val group = GroupResponse(
+            UUID.randomUUID().toString(),
+            owner,
+            listOf(GroupMemberResponse(owner, "owner", "OWNER"), GroupMemberResponse(user.accountId, user.username, "MEMBER")),
+        )
+        messages.put(MessageEntity("incoming", "group:${group.groupId}", "unread", false, 1, "DELIVERED", senderAccountId = user.accountId))
+        accounts.localAccountId = owner
+        cipher.beforeEncryptPayload = { yield() }
+        repository = MessageRepository(messages, outboxes, cipher, accounts, json, FakeGroupInfoDao(), FakeGroupReceiptDao()) { block -> block() }
+
+        val firstRead = launch { repository.markGroupRead(group) }
+        val secondRead = launch { repository.markGroupRead(group) }
+        firstRead.join()
+        secondRead.join()
+
+        assertEquals(1, accounts.groupSent.size)
+        assertEquals("READ", messages.byId("incoming")?.status)
+        assertTrue(outboxes.items.isEmpty())
+    }
+
+    @Test
     fun `group info is accepted only from the current owner`() = runTest {
         val owner = UUID.randomUUID().toString()
         val member = GroupMemberResponse(UUID.randomUUID().toString(), "member", "MEMBER")
@@ -332,6 +379,7 @@ private class FakeMessageCipher : MessageCipher {
         SendMessageRequest(messageId, recipientDeviceId, 2, encode("ciphertext:$messageId"))
 
     var deviceForAccount: (String) -> String = { recipientDeviceId }
+    var beforeEncryptPayload: suspend () -> Unit = {}
 
     override suspend fun encryptReadReceipt(user: UserResponse, originalMessageId: String): SendMessageRequest =
         SendMessageRequest(UUID.randomUUID().toString(), recipientDeviceId, 2, encode("receipt:$originalMessageId"))
@@ -339,8 +387,10 @@ private class FakeMessageCipher : MessageCipher {
     override suspend fun encryptDirectPayload(user: UserResponse, payload: ChatPayload): SendMessageRequest =
         SendMessageRequest(payload.messageId, deviceForAccount(user.accountId), 2, encode("payload:${payload.messageId}"))
 
-    override suspend fun encryptPayload(user: UserResponse, payload: ChatPayload): SendMessageRequest =
-        SendMessageRequest(UUID.randomUUID().toString(), deviceForAccount(user.accountId), 2, encode("payload:${payload.messageId}"))
+    override suspend fun encryptPayload(user: UserResponse, payload: ChatPayload): SendMessageRequest {
+        beforeEncryptPayload()
+        return SendMessageRequest(UUID.randomUUID().toString(), deviceForAccount(user.accountId), 2, encode("payload:${payload.messageId}"))
+    }
 
     override suspend fun decrypt(message: IncomingMessage): ChatPayload = onDecrypt(message)
 

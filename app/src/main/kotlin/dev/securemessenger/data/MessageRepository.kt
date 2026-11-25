@@ -269,7 +269,7 @@ class MessageRepository internal constructor(
         flushOutbox()
     }
 
-    suspend fun markGroupRead(group: GroupResponse) {
+    suspend fun markGroupRead(group: GroupResponse) = syncMutex.withLock {
         val unread = messages.unreadIncoming("group:${group.groupId}")
         val byAccount = group.members.associateBy { it.accountId }
         unread.forEach { message ->
@@ -341,6 +341,11 @@ class MessageRepository internal constructor(
             } catch (_: IOException) {
                 return
             } catch (error: ApiException) {
+                if (outbox.groupId != null && error.code == "MESSAGE_CONFLICT") {
+                    groupReceipts?.markSkipped(request.messageId)
+                    outboxes.delete(outbox.envelopeId)
+                    return@forEach
+                }
                 if (outbox.groupId != null && error.code == "RECIPIENT_NOT_FOUND") {
                     groupReceipts?.markSkipped(request.messageId)
                     outboxes.delete(outbox.envelopeId)

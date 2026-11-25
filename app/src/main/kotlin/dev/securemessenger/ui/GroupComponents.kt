@@ -18,6 +18,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -37,10 +38,18 @@ fun GroupListSection(
     selectedGroup: GroupConversation?,
     onSelect: (GroupConversation) -> Unit,
     onCreate: (String, List<String>) -> Unit,
+    error: String?,
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var title by rememberSaveable { mutableStateOf("") }
     var member by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(selectedGroup?.group?.groupId) {
+        if (selectedGroup != null) {
+            expanded = false
+            title = ""
+            member = ""
+        }
+    }
     TextButton(onClick = { expanded = !expanded }, modifier = Modifier.testTag("create_group_toggle")) {
         Text(if (expanded) "Скрыть создание группы" else "Создать группу")
     }
@@ -62,14 +71,15 @@ fun GroupListSection(
         Button(
             onClick = {
                 onCreate(title, listOf(member))
-                title = ""
-                member = ""
             },
             enabled = title.isNotBlank() && member.isNotBlank(),
             modifier = Modifier.fillMaxWidth().testTag("create_group_button"),
         ) {
             Text("Создать зашифрованную группу")
         }
+    }
+    error?.let {
+        Text(groupErrorText(it), color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("group_error"))
     }
     if (groups.isEmpty()) {
         Text("Групп пока нет", style = MaterialTheme.typography.bodySmall)
@@ -198,4 +208,17 @@ private fun GroupMemberRow(
             }
         }
     }
+}
+
+private fun groupErrorText(code: String): String = when (code) {
+    "RECIPIENT_NOT_READY" -> "Участник должен хотя бы раз войти в приложение перед добавлением"
+    "USER_NOT_FOUND" -> "Пользователь не найден"
+    "NETWORK_ERROR" -> "Сервер недоступен. Попробуйте ещё раз"
+    "INVALID_GROUP_TITLE" -> "Введите название группы длиной до 80 символов"
+    "INVALID_GROUP_MEMBERS" -> "Проверьте список участников"
+    "GROUP_TOO_LARGE" -> "В группе может быть не больше 50 участников"
+    "GROUP_CREATE_FAILED" -> "Не удалось создать зашифрованную группу"
+    "GROUP_MEMBER_ADD_FAILED" -> "Не удалось добавить участника"
+    "GROUP_MEMBER_REMOVE_FAILED" -> "Не удалось удалить участника"
+    else -> "Действие не выполнено. Попробуйте ещё раз"
 }

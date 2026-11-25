@@ -16,6 +16,7 @@ import dev.securemessenger.data.media.MediaKind
 import dev.securemessenger.data.media.MediaMessagePreparer
 import dev.securemessenger.data.media.MediaService
 import dev.securemessenger.data.media.VoiceRecordingRepository
+import dev.securemessenger.shared.ValidationException
 import dev.securemessenger.data.remote.ApiException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -87,6 +88,19 @@ class GroupsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            try {
+                messages.markGroupRead(conversation.group)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: IOException) {
+            } catch (_: ApiException) {
+            } catch (_: IdentityChangedException) {
+                mutableState.value = mutableState.value.copy(error = "GROUP_IDENTITY_CHANGED")
+            } catch (_: Exception) {
+                mutableState.value = mutableState.value.copy(error = "SYNC_FAILED")
+            }
+        }
+        viewModelScope.launch {
             val draft = drafts.get("group:${conversation.group.groupId}")
             if (mutableState.value.selectedGroup == conversation && draftRevision == revision) {
                 mutableState.value = mutableState.value.copy(draft = draft)
@@ -113,6 +127,8 @@ class GroupsViewModel @Inject constructor(
                 throw error
             } catch (error: ApiException) {
                 mutableState.value = mutableState.value.copy(error = error.code)
+            } catch (error: ValidationException) {
+                mutableState.value = mutableState.value.copy(error = error.code)
             } catch (_: IOException) {
                 mutableState.value = mutableState.value.copy(error = "NETWORK_ERROR")
             } catch (_: Exception) {
@@ -135,6 +151,8 @@ class GroupsViewModel @Inject constructor(
                 throw error
             } catch (error: ApiException) {
                 mutableState.value = mutableState.value.copy(error = error.code)
+            } catch (error: ValidationException) {
+                mutableState.value = mutableState.value.copy(error = error.code)
             } catch (_: Exception) {
                 mutableState.value = mutableState.value.copy(error = "GROUP_MEMBER_ADD_FAILED")
             } finally {
@@ -154,6 +172,8 @@ class GroupsViewModel @Inject constructor(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: ApiException) {
+                mutableState.value = mutableState.value.copy(error = error.code)
+            } catch (error: ValidationException) {
                 mutableState.value = mutableState.value.copy(error = error.code)
             } catch (_: Exception) {
                 mutableState.value = mutableState.value.copy(error = "GROUP_MEMBER_REMOVE_FAILED")

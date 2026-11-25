@@ -4,36 +4,28 @@
 
 Личные и групповые чаты с E2EE-текстом, файлами, фото, видео, стикерами и голосовыми. Сервер хранит только ciphertext, публичные prekeys и необходимые маршрутизационные метаданные. Название группы, имя/MIME файла и файловый ключ находятся только внутри E2EE payload.
 
-## Checkpoint 2026-11-25 — WIP перед выключением машины
+## Приёмка 2026-11-25
 
-Приращение 3 НЕ завершено и не принято. Ветка `increment-3-groups-media`.
+Ветка `increment-3-groups-media`.
 
 Подтверждено:
-- Полный host gate ранее завершался `BUILD SUCCESSFUL`: shared/server/app unit, PostgreSQL integration, lint и `assembleDebug`.
-- `MessageRepositoryTest` после отдельного UUID для read receipts зелёный.
-- На POCO `OK (24 tests)`: SQLCipher, native PQXDH, миграция v2→v4, adaptive UI, ExoPlayer и реальная запись `MediaRecorder`.
-- Личные E2EE-чаты по-прежнему проходят двухклиентский сценарий без крэшей и plaintext в logcat.
-- A создаёт группу и отправляет сообщение B; зашифрованное название и групповая доставка работают.
-- Третий APK и test APK разрешены MIUI и успешно установлены.
+- Полный host gate завершился `BUILD SUCCESSFUL`: shared/server/app unit, PostgreSQL integration, lint, `assembleDebug` и `assembleDebugAndroidTest`.
+- На POCO X5 Pro `OK (25 tests)`: SQLCipher, native PQXDH, миграция v2→v4, adaptive UI, Media3 и реальная запись `MediaRecorder`.
+- `group-three-clients.sh` полностью прошёл на трёх изолированных application ID: создание группы, сообщения A↔B, добавление C без прежней истории, PNG/MP4/WAV/TXT, group read receipts, удаление C, запрет новых сообщений/отправки после удаления и offline delivery.
+- Для всех медиа SHA-256 расшифрованных байтов совпал с исходником. MP4/WAV дополнительно достигли `STATE_READY` в Media3. Тестовые fixtures копируются через Base64 с проверкой SHA-256, поскольку потоковый ADB stdin повреждает бинарники.
+- PostgreSQL и media storage не содержат искомый plaintext; logcat не содержит plaintext и крэшей.
+- Перед добавлением участник должен опубликовать ключи хотя бы одним входом. Иначе сервер атомарно отклоняет операцию с `RECIPIENT_NOT_READY`, а Android показывает понятную ошибку без создания недоступной группы.
+- Найден и исправлен реальный дефект: быстрое открытие уже синхронизированной группы не вызывало read. Теперь `selectGroup` сразу вызывает `markGroupRead`, receipts сериализованы через `syncMutex`; JVM-тест подтверждает один receipt при двух одновременных вызовах.
+- Для instrumentation Hilt EntryPoint находится только в debug source set. UI-проверки ждут реальные данные Room и прокручивают LazyColumn, а не предполагают, что элемент уже находится в viewport.
 
-Текущая блокирующая ошибка:
-- При повторном полном сценарии B остаётся `Reply group ... PENDING`; скрипт останавливается на `send` после 30 секунд.
-- Сервер продолжает отвечать `409 Conflict: POST /v1/groups/{id}/messages` при повторных попытках.
-- Первая причина была исправлена: read receipt теперь получает собственный UUID в `markGroupRead`, а исходный message ID остаётся только внутри E2EE payload. Регрессионный тест это подтверждает.
-- Повторный `409` остаётся. Вероятная область следующего анализа — старые outbox-записи B, созданные до исправления, и сравнение существующих строк `group_messages`/`message_queue`. Это гипотеза, не подтверждённая причина.
-- Следующий шаг: безопасно сравнить `groupMessageId`, sender device, envelope UUID и ciphertext hash конфликтующей записи; не логировать plaintext/ключи. Обработать `MESSAGE_CONFLICT` так, чтобы одна повреждённая outbox-запись не блокировала остальные. Не очищать БД и не удалять данные без разрешения пользователя.
+Дополнительно:
+- `e2ee-two-clients.sh` повторно прошёл: PQXDH в обе стороны, safety number, offline delivery, ciphertext в PostgreSQL, отсутствие plaintext и крэшей в logcat.
+- Приращение 3 принято по заданным критериям. Следующий шаг — обычный (не WIP) commit/push.
 
-Оставшаяся приёмка:
-- Групповые delivery/read receipts, PNG/MP4/WAV/TXT на трёх клиентах, удаление C, отсутствие новых сообщений после удаления и offline delivery.
-- Финальный host gate и on-device gate после исправления, затем README и обычный (не WIP) commit/push.
-
-Окружение для продолжения:
-- Пользователь удалил приложения с POCO. `group-three-clients.sh` должен заново собрать и установить main/second/third APK и test APK.
-- Переустановка создаст новые device ID и Signal identity; локальные Signal sessions и история сообщений потеряны. Не полагаться на старые E2EE-сессии или локальный outbox.
-- Серверные аккаунты и device records сохранились. При первом входе возможен `DEVICE_LIMIT`: не ослаблять ограничение и не удалять серверные данные без согласия пользователя. Перед сценарием выбрать контролируемое отзыв старых тестовых устройств или новые тестовые аккаунты.
-- Запуск: `bash scripts/dev-up.sh`, затем `bash scripts/group-three-clients.sh`.
-- PostgreSQL/Mailpit/CA/secrets/media fixtures остаются только в игнорируемом `.local` и не коммитятся.
-- Тестовые media: `.local/test-image.png`, `.local/test-video.mp4`, `.local/test-voice.wav`, `.local/test-file.txt` и файлы в `/sdcard/Android/data/dev.securemessenger.test/files` на POCO.
+Окружение:
+- POCO X5 Pro подключён по ADB; default и три suffix APK с test APK установлены. Flip 4 физически не подключён; Flex Mode проверен instrumentation-тестом.
+- Dev server: `bash scripts/dev-up.sh`. Групповой сценарий: `bash scripts/group-three-clients.sh` с соответствующими тестовыми аккаунтами и suffix application ID.
+- PostgreSQL/Mailpit/CA/secrets/media fixtures остаются только в игнорируемом `.local` и не коммитятся. Старые устройства и серверные данные не удалялись.
 
 ## Протокол групп
 

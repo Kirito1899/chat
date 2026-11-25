@@ -125,6 +125,15 @@ class AdaptiveAppTest {
         compose.onNodeWithTag("send_button").assertIsNotEnabled()
     }
 
+    @Test
+    fun group_key_readiness_error_is_visible() {
+        compose.setContent {
+            GroupListSection(emptyList(), null, {}, { _, _ -> }, "RECIPIENT_NOT_READY")
+        }
+
+        compose.onNodeWithTag("group_error").assertIsDisplayed()
+    }
+
     private fun showChat(
         draft: String = "",
         messages: List<MessageEntity> = emptyList(),
