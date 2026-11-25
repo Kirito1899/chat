@@ -5,12 +5,15 @@ import dev.securemessenger.data.e2ee.DuplicateEnvelopeException
 import dev.securemessenger.data.e2ee.SafetyNumber
 import dev.securemessenger.data.e2ee.SafetyNumberParty
 import dev.securemessenger.data.e2ee.SafetyNumberService
+import dev.securemessenger.data.e2ee.MediaDescriptor
 import dev.securemessenger.data.local.GroupInfoDao
 import dev.securemessenger.data.local.GroupInfoEntity
 import dev.securemessenger.data.local.GroupReceiptDao
 import dev.securemessenger.data.local.GroupReceiptEntity
 import dev.securemessenger.data.local.MessageDao
 import dev.securemessenger.data.local.MessageEntity
+import dev.securemessenger.data.local.MediaUploadDao
+import dev.securemessenger.data.local.MediaUploadEntity
 import dev.securemessenger.data.local.OutboxDao
 import dev.securemessenger.data.local.OutboxEntity
 import dev.securemessenger.data.remote.ApiException
@@ -360,6 +363,57 @@ class MessageRepositoryTest {
         assertEquals("Private group", info.get(group.groupId)?.title)
     }
 
+    @Test
+    fun `direct media dispatch is idempotent`() = runTest {
+        val mediaId = UUID.randomUUID().toString()
+        val descriptor = MediaDescriptor(mediaId, "key", "hash", "note.txt", "text/plain", 5)
+        val dao = FakeMediaUploadDao().apply { upsert(testMediaUpload(mediaId, "direct:${user.accountId}", user.username)) }
+        repository = MessageRepository(messages, outboxes, cipher, accounts, json, mediaUploads = dao) { block -> block() }
+
+        val first = repository.sendMedia(user, descriptor, "caption")
+        val second = repository.sendMedia(user, descriptor, "caption")
+
+        assertEquals(first, second)
+        assertEquals(1, accounts.sent.size)
+        assertEquals(first, dao.get(mediaId)?.messageId)
+        assertTrue(dao.get(mediaId)?.dispatched == true)
+    }
+
+    @Test
+    fun `group media dispatch is idempotent`() = runTest {
+        val owner = UUID.randomUUID().toString()
+        val member = GroupMemberResponse(UUID.randomUUID().toString(), "member", "MEMBER")
+        val group = GroupResponse(UUID.randomUUID().toString(), owner, listOf(GroupMemberResponse(owner, "owner", "OWNER"), member))
+        val mediaId = UUID.randomUUID().toString()
+        val descriptor = MediaDescriptor(mediaId, "key", "hash", "note.txt", "text/plain", 5)
+        val dao = FakeMediaUploadDao().apply { upsert(testMediaUpload(mediaId, "group:${group.groupId}", null)) }
+        accounts.localAccountId = owner
+        repository = MessageRepository(messages, outboxes, cipher, accounts, json, mediaUploads = dao) { block -> block() }
+
+        val first = repository.sendGroupMedia(group, descriptor, "caption")
+        val second = repository.sendGroupMedia(group, descriptor, "caption")
+
+        assertEquals(first, second)
+        assertEquals(1, accounts.groupSent.size)
+        assertEquals(first, dao.get(mediaId)?.messageId)
+        assertTrue(dao.get(mediaId)?.dispatched == true)
+    }
+
+    private fun testMediaUpload(mediaId: String, destination: String, username: String?) = MediaUploadEntity(
+        mediaId = mediaId,
+        encryptedPath = "unused",
+        fileName = "note.txt",
+        mimeType = "text/plain",
+        plaintextBytes = 5,
+        ciphertextSha256 = "hash",
+        key = "key",
+        uploadedBytes = 53,
+        createdAt = 1,
+        destinationChatId = destination,
+        recipientUsername = username,
+        caption = "caption",
+    )
+
     private fun incomingMessage() = IncomingMessage(
         messageId = UUID.randomUUID().toString(),
         senderAccountId = user.accountId,
@@ -571,5 +625,30 @@ private class FakeGroupReceiptDao : GroupReceiptDao {
 
     private fun update() {
         flow.value = items.values.toList()
+    }
+}
+
+private class FakeMediaUploadDao : MediaUploadDao {
+    private val items = linkedMapOf<String, MediaUploadEntity>()
+
+    override suspend fun upsert(item: MediaUploadEntity) {
+        items[item.mediaId] = item
+    }
+
+    override suspend fun get(mediaId: String): MediaUploadEntity? = items[mediaId]
+
+    override suspend fun all(): List<MediaUploadEntity> = items.values.toList()
+
+    override suspend fun pending(): List<MediaUploadEntity> = items.values.filter { !it.dispatched }
+
+    override suspend fun tryMarkDispatched(mediaId: String, messageId: String): Int {
+        val current = items[mediaId] ?: return 0
+        if (current.dispatched) return 0
+        items[mediaId] = current.copy(dispatched = true, messageId = messageId)
+        return 1
+    }
+
+    override suspend fun delete(mediaId: String) {
+        items.remove(mediaId)
     }
 }

@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 ADB="${ADB:-/c/Users/aleks/AppData/Local/Android/Sdk/platform-tools/adb.exe}"
+"$ADB" reverse tcp:8443 tcp:8443
 LOGCAT_START="$("$ADB" shell "date '+%m-%d %H:%M:%S.000'" | tr -d '\r')"
 A_EMAIL="${A_EMAIL:-phone-1795518608@example.com}"
 A_USER="${A_USER:-phone_95518608}"

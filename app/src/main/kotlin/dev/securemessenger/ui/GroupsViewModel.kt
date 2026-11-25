@@ -284,7 +284,7 @@ class GroupsViewModel @Inject constructor(
         val caption = mutableState.value.draft
         val prepared = media.prepare(input.open, input.fileName, input.mimeType, input.size, { uploaded ->
             mutableState.value = mutableState.value.copy(mediaProgress = "$uploaded")
-        }, input.cleanup)
+        }, input.cleanup, destinationChatId = "group:${selected.group.groupId}", caption = caption)
         messages.sendGroupMedia(selected.group, prepared.descriptor, caption)
         clearDraft()
     }

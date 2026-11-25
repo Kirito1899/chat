@@ -152,6 +152,11 @@ data class MediaUploadEntity(
     val key: String,
     val uploadedBytes: Long,
     val createdAt: Long,
+    val destinationChatId: String? = null,
+    val recipientUsername: String? = null,
+    val caption: String? = null,
+    val dispatched: Boolean = false,
+    val messageId: String? = null,
 )
 
 @Dao
@@ -165,13 +170,19 @@ interface MediaUploadDao {
     @Query("SELECT * FROM media_uploads ORDER BY createdAt")
     suspend fun all(): List<MediaUploadEntity>
 
+    @Query("SELECT * FROM media_uploads WHERE dispatched = 0 ORDER BY createdAt")
+    suspend fun pending(): List<MediaUploadEntity>
+
+    @Query("UPDATE media_uploads SET dispatched = 1, messageId = :messageId WHERE mediaId = :mediaId AND dispatched = 0")
+    suspend fun tryMarkDispatched(mediaId: String, messageId: String): Int
+
     @Query("DELETE FROM media_uploads WHERE mediaId = :mediaId")
     suspend fun delete(mediaId: String)
 }
 
 @Database(
     entities = [DraftEntity::class, MessageEntity::class, OutboxEntity::class, GroupInfoEntity::class, GroupReceiptEntity::class, MediaUploadEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -207,6 +218,17 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
+
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE media_uploads ADD COLUMN destinationChatId TEXT")
+        db.execSQL("ALTER TABLE media_uploads ADD COLUMN recipientUsername TEXT")
+        db.execSQL("ALTER TABLE media_uploads ADD COLUMN caption TEXT")
+        db.execSQL("ALTER TABLE media_uploads ADD COLUMN dispatched INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE media_uploads ADD COLUMN messageId TEXT")
+        SignalSchema.create(db)
+    }
+}
 
 val MIGRATION_3_4 = object : Migration(3, 4) {
     override fun migrate(db: SupportSQLiteDatabase) {

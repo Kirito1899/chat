@@ -8,6 +8,7 @@ import androidx.core.content.ContextCompat
 import dagger.hilt.android.AndroidEntryPoint
 import dev.securemessenger.data.AuthRepository
 import dev.securemessenger.data.MessageRepository
+import dev.securemessenger.data.media.PendingMediaDispatcher
 import dev.securemessenger.data.remote.ApiException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -23,6 +24,7 @@ class SyncService : Service() {
     @Inject lateinit var accounts: AuthRepository
     @Inject lateinit var messages: MessageRepository
     @Inject lateinit var events: ServerEventClient
+    @Inject lateinit var pendingMedia: PendingMediaDispatcher
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var running = false
@@ -32,6 +34,7 @@ class SyncService : Service() {
         super.onCreate()
         running = true
         startForeground(7001, MessageNotifier.foregroundNotification(this))
+        scope.launch { runCatching { pendingMedia.resumePending() } }
         scope.launch { connectionLoop() }
     }
 

@@ -214,7 +214,7 @@ class ChatsViewModel @Inject constructor(
         val caption = mutableState.value.draft
         val prepared = media.prepare(input.open, input.fileName, input.mimeType, input.size, { uploaded ->
             mutableState.value = mutableState.value.copy(mediaProgress = "$uploaded")
-        }, input.cleanup)
+        }, input.cleanup, destinationChatId = "direct:${user.accountId}", recipientUsername = user.username, caption = caption)
         messages.sendMedia(user, prepared.descriptor, caption)
         draftRevision++
         draftJob?.cancel()

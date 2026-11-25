@@ -49,6 +49,35 @@ class MediaServiceTest {
     }
 
     @Test
+    fun `pending resume preserves destination and dispatches only once`() = runTest {
+        val plaintext = ByteArray(128) { 5 }
+        val api = FakeMediaApi()
+        val dao = FakeMediaUploadDao()
+        val service = MediaService(root().toFile(), api, dao)
+        service.prepare(
+            { plaintext.inputStream() },
+            "note.txt",
+            "text/plain",
+            plaintext.size.toLong(),
+            destinationChatId = "direct:account",
+            recipientUsername = "friend",
+            caption = "caption",
+        )
+        val destinations = mutableListOf<String>()
+        val result = service.resumePending { upload, _ ->
+            destinations += "${upload.destinationChatId}:${upload.recipientUsername}:${upload.caption}"
+            dao.tryMarkDispatched(api.mediaId, "message-1")
+        }
+        val repeated = service.resumePending { _, _ -> destinations += "duplicate" }
+
+        assertEquals(1, result.dispatched)
+        assertEquals(0, result.skipped)
+        assertEquals(listOf("direct:account:friend:caption"), destinations)
+        assertEquals(0, repeated.dispatched)
+        assertTrue(dao.get(api.mediaId)?.dispatched == true)
+    }
+
+    @Test
     fun `download resumes locally and tampering is rejected`() = runTest {
         val plaintext = ByteArray(MEDIA_UPLOAD_CHUNK_SIZE + 100) { 11 }
         val api = FakeMediaApi()
@@ -80,6 +109,13 @@ class MediaServiceTest {
 
         override suspend fun get(mediaId: String): MediaUploadEntity? = items[mediaId]
         override suspend fun all(): List<MediaUploadEntity> = items.values.toList()
+        override suspend fun pending(): List<MediaUploadEntity> = items.values.filter { !it.dispatched }
+        override suspend fun tryMarkDispatched(mediaId: String, messageId: String): Int {
+            val current = items[mediaId] ?: return 0
+            if (current.dispatched) return 0
+            items[mediaId] = current.copy(dispatched = true, messageId = messageId)
+            return 1
+        }
         override suspend fun delete(mediaId: String) {
             items.remove(mediaId)
         }

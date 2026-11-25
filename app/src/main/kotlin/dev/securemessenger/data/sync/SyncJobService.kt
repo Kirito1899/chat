@@ -9,6 +9,7 @@ import android.content.Context
 import dagger.hilt.android.AndroidEntryPoint
 import dev.securemessenger.data.AuthRepository
 import dev.securemessenger.data.MessageRepository
+import dev.securemessenger.data.media.PendingMediaDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +23,7 @@ import javax.inject.Inject
 class SyncJobService : JobService() {
     @Inject lateinit var accounts: AuthRepository
     @Inject lateinit var messages: MessageRepository
+    @Inject lateinit var pendingMedia: PendingMediaDispatcher
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
@@ -30,6 +32,7 @@ class SyncJobService : JobService() {
         job = scope.launch {
             try {
                 if (accounts.restore() != null) {
+                    pendingMedia.resumePending()
                     MessageNotifier.showMessages(this@SyncJobService, messages.sync())
                 }
                 jobFinished(params, false)

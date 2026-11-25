@@ -81,6 +81,40 @@ class SyncFallbackTest {
                         throw error
                     }
                 }
+                "prepare_pending_media" -> {
+                    val peer = entry.accounts().searchByUsername(peerUsername)
+                    val file = File(args.getString("media_path") ?: error("media_path is required"))
+                    entry.media().prepare(
+                        { file.inputStream() },
+                        file.name,
+                        "text/plain",
+                        file.length(),
+                        destinationChatId = "direct:${peer.accountId}",
+                        recipientUsername = peer.username,
+                        caption = expected,
+                    )
+                    assertEquals(1, entry.database().mediaUploads().pending().count { it.caption == expected })
+                }
+                "verify_pending_media" -> {
+                    val peer = entry.accounts().searchByUsername(peerUsername)
+                    withTimeout(30_000) {
+                        entry.messages().observeMessages(peer.accountId)
+                            .filter { chat -> chat.count { it.body == expected } == 1 }
+                            .first()
+                    }
+                    assertTrue(entry.database().mediaUploads().all().single { it.caption == expected }.dispatched)
+                    assertEquals(0, entry.pendingMedia().resumePending().dispatched)
+                }
+                "expect_direct_media" -> {
+                    entry.messages().sync()
+                    val peer = entry.accounts().searchByUsername(peerUsername)
+                    val message = entry.messages().observeMessages(peer.accountId).first().last { it.body == expected }
+                    val descriptor = kotlinx.serialization.json.Json.decodeFromString(
+                        dev.securemessenger.data.e2ee.MediaDescriptor.serializer(),
+                        requireNotNull(message.mediaJson),
+                    )
+                    assertEquals(expected, entry.media().readBytes(descriptor).decodeToString())
+                }
                 "offline_notification" -> {
                     val job = requireNotNull(context.getSystemService(JobScheduler::class.java).getPendingJob(SyncJobService.JOB_ID))
                     assertTrue(job.isPeriodic)

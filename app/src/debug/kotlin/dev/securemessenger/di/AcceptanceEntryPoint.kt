@@ -8,6 +8,7 @@ import dev.securemessenger.data.GroupChatRepository
 import dev.securemessenger.data.MessageRepository
 import dev.securemessenger.data.local.AppDatabase
 import dev.securemessenger.data.media.MediaService
+import dev.securemessenger.data.media.PendingMediaDispatcher
 import dev.securemessenger.data.remote.MessengerApi
 import dev.securemessenger.data.sync.ServerEventClient
 
@@ -21,4 +22,5 @@ interface AcceptanceEntryPoint {
     fun database(): AppDatabase
     fun serverEvents(): ServerEventClient
     fun api(): MessengerApi
+    fun pendingMedia(): PendingMediaDispatcher
 }

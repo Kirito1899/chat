@@ -41,6 +41,11 @@ data class PreparedMedia(
     val encryptedFile: File,
 )
 
+data class MediaResumeResult(
+    val dispatched: Int,
+    val skipped: Int,
+)
+
 class MediaService(
     private val root: File,
     private val api: MediaApi,
@@ -53,6 +58,9 @@ class MediaService(
         plaintextBytes: Long?,
         onProgress: (Long) -> Unit = {},
         onSourceConsumed: () -> Unit = {},
+        destinationChatId: String? = null,
+        recipientUsername: String? = null,
+        caption: String? = null,
     ): PreparedMedia {
         val size = plaintextBytes ?: inputFactory().use { it.countBytes() }
         require(size >= 0 && MediaCipher.encryptedSize(size) <= MAX_MEDIA_BYTES) { "Media is too large" }
@@ -88,13 +96,31 @@ class MediaService(
             key = Base64.getEncoder().encodeToString(key),
             uploadedBytes = 0,
             createdAt = System.currentTimeMillis(),
+            destinationChatId = destinationChatId,
+            recipientUsername = recipientUsername,
+            caption = caption,
         )
         uploads.upsert(entity)
         onProgress(0)
         return upload(entity, onProgress)
     }
 
-    suspend fun resumeUploads(): List<PreparedMedia> = uploads.all().map { entity -> upload(entity) }
+    suspend fun resumeUploads(): List<PreparedMedia> = uploads.pending().map { entity -> upload(entity) }
+
+    suspend fun resumePending(dispatch: suspend (MediaUploadEntity, MediaDescriptor) -> Unit): MediaResumeResult {
+        var sent = 0
+        var skipped = 0
+        uploads.pending().forEach { upload ->
+            if (upload.destinationChatId == null) {
+                skipped++
+                return@forEach
+            }
+            val prepared = upload(upload)
+            dispatch(upload, prepared.descriptor)
+            sent++
+        }
+        return MediaResumeResult(sent, skipped)
+    }
 
     suspend fun upload(entity: MediaUploadEntity, onProgress: (Long) -> Unit = {}): PreparedMedia {
         val file = File(entity.encryptedPath)

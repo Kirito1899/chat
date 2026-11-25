@@ -13,6 +13,7 @@ import dev.securemessenger.data.local.GroupReceiptDao
 import dev.securemessenger.data.local.GroupReceiptEntity
 import dev.securemessenger.data.local.MessageDao
 import dev.securemessenger.data.local.MessageEntity
+import dev.securemessenger.data.local.MediaUploadDao
 import dev.securemessenger.data.local.OutboxDao
 import dev.securemessenger.data.local.OutboxEntity
 import dev.securemessenger.data.remote.ApiException
@@ -68,6 +69,7 @@ class MessageRepository internal constructor(
     private val json: Json,
     private val groupInfo: GroupInfoDao? = null,
     private val groupReceipts: GroupReceiptDao? = null,
+    private val mediaUploads: MediaUploadDao? = null,
     private val transact: MessageTransaction,
 ) {
     private val syncMutex = Mutex()
@@ -108,6 +110,7 @@ class MessageRepository internal constructor(
         transact = MessageTransaction { block -> database.withTransaction { block() } },
         groupInfo = database.groupInfo(),
         groupReceipts = database.groupReceipts(),
+        mediaUploads = database.mediaUploads(),
     )
 
     fun observeMessages(accountId: String): Flow<List<MessageEntity>> =
@@ -163,19 +166,33 @@ class MessageRepository internal constructor(
             System.currentTimeMillis(),
             media = descriptor,
         )
+        mediaUploads?.get(descriptor.mediaId)?.messageId?.let { return it }
         e2ee.initializeDevice()
         val request = e2ee.encryptDirectPayload(user, payload)
         val outbox = OutboxEntity(payload.messageId, json.encodeToString(SendMessageRequest.serializer(), request), System.currentTimeMillis())
+        var resultId = payload.messageId
+        var dispatchNew = true
         transact.run {
+            if (mediaUploads?.tryMarkDispatched(descriptor.mediaId, payload.messageId) == 0 &&
+                mediaUploads.get(descriptor.mediaId)?.dispatched == true
+            ) {
+                resultId = mediaUploads.get(descriptor.mediaId)?.messageId ?: payload.messageId
+                dispatchNew = false
+                return@run
+            }
             messages.insert(messageEntity(payload, outgoing = true, chatId = "direct:${user.accountId}"))
             outboxes.put(outbox)
         }
-        try {
-            sendRequest(outbox)
-        } catch (_: IOException) {
-        } catch (_: ApiException) {
+        if (dispatchNew) {
+            try {
+                sendRequest(outbox)
+            } catch (_: IOException) {
+            } catch (_: ApiException) {
+            }
+        } else {
+            flushOutbox()
         }
-        return payload.messageId
+        return resultId
     }
 
     suspend fun sendGroupText(group: GroupResponse, body: String): String {
@@ -207,6 +224,9 @@ class MessageRepository internal constructor(
         trackMessage: Boolean = true,
     ): String {
         require(payload.groupId == group.groupId) { "Group payload context mismatch" }
+        payload.media?.mediaId?.let { mediaId ->
+            mediaUploads?.get(mediaId)?.messageId?.let { return it }
+        }
         e2ee.initializeDevice()
         val localAccountId = requireNotNull(accounts.currentAccountId()) { "No local account" }
         val recipients = group.members.filter {
@@ -217,7 +237,14 @@ class MessageRepository internal constructor(
             val user = UserResponse(member.accountId, member.username)
             e2ee.encryptPayload(user, payload)
         }
+        var resultId = payload.messageId
         transact.run {
+            if (payload.media != null && mediaUploads?.tryMarkDispatched(payload.media.mediaId, payload.messageId) == 0 &&
+                mediaUploads.get(payload.media.mediaId)?.dispatched == true
+            ) {
+                resultId = mediaUploads.get(payload.media.mediaId)?.messageId ?: payload.messageId
+                return@run
+            }
             if (trackMessage) {
                 messages.insert(messageEntity(payload, outgoing = true, chatId = "group:${group.groupId}", senderAccountId = localAccountId))
             }
@@ -237,7 +264,7 @@ class MessageRepository internal constructor(
             }
         }
         flushOutbox()
-        return payload.messageId
+        return resultId
     }
 
     suspend fun sync(): Int = syncMutex.withLock {

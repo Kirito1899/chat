@@ -5,7 +5,7 @@
 ## Что работает
 
 - Регистрация, подтверждение и восстановление по email, вход и ротация сессий, поиск по `@username`.
-- Личные текстовые сообщения через официальный `libsignal-client` 0.86.5 из Maven Central: PQXDH и Double Ratchet, подписанные EC/Kyber prekeys и last-resort Kyber key.
+- Личные текстовые сообщения через официальный `libsignal-client` 0.86.5 из Maven Central: PQXDH и Double Ratchet, подписанные EC/Kyber prekeys и last-resort Kyber key. При остатке менее 20 EC prekeys загружаются новые EC/Kyber keys с проверкой собственной identity и подписей; identity не меняется.
 - Сервер хранит только публичные ключи и недоставленные ciphertext envelopes с TTL. Одноразовые prekeys выдаются атомарно; повторная отправка с тем же message ID не создаёт дубликат.
 - Android хранит identity, prekeys, Signal sessions, сообщения, outbox и черновики в SQLCipher. Ключи расшифровки защищены Android Keystore.
 - Offline outbox, подтверждение доставки после durable local save, статусы `PENDING`/`SENT`/`DELIVERED`/`READ`.
@@ -16,7 +16,7 @@
 - Новый участник не получает прежнюю историю. После удаления участника сервер запрещает ему новые сообщения и удаляет его недоставленные group envelopes.
 - Групповые статусы доставки/прочтения по каждому получателю. Открытие группы сразу отмечает входящие прочитанными; одновременные вызовы не создают повторные receipts. Каждый receipt имеет отдельный envelope UUID.
 - Фото, видео, произвольные файлы, стикеры и голосовые. Файл шифруется новым AES-256-GCM ключом по 64-KiB chunks с аутентификацией порядка и длины; ключ, имя и MIME передаются только в E2EE payload.
-- Возобновляемые upload/download, streaming-расшифровка для Media3, повреждённый ciphertext отклоняется. Максимум 512 MiB, TTL 7 дней, удаление владельцем.
+- Возобновляемые upload/download, streaming-расшифровка для Media3, повреждённый ciphertext отклоняется. Максимум 512 MiB, TTL 7 дней, удаление владельцем. Получатель и caption pending upload хранятся в SQLCipher; `JobScheduler` возобновляет их после выгрузки процесса, а атомарная `dispatched`/`messageId` отметка предотвращает повторную отправку.
 - WSS foreground service с переподключением и обновлением access token. События содержат только `SYNC`/`DELIVERED`, без текста, отправителя или файловых ключей.
 - Собственный fallback через `JobScheduler` каждые 15 минут при наличии сети, включая восстановление после выгрузки процесса. Уведомления обобщённые и не содержат plaintext; разрешение запрашивается после входа. Android `force-stop` и OEM-ограничения могут отменить фоновую работу до следующего ручного запуска.
 - Опциональный `API_FALLBACK_URL` для REST и WSS. Переключение выполняется по фактически отказавшему endpoint даже при параллельных запросах; latency успешного переключения измеряется. Timeout, HTTP-ошибка и TLS-ошибка не приводят к слепому повтору запроса на другом endpoint.
@@ -74,6 +74,7 @@ PostgreSQL integration tests используют Zonky с настоящими 
 - `bash scripts/e2ee-two-clients.sh` собирает и устанавливает два изолированных application ID на одном телефоне, проверяет PQXDH сообщения в обе стороны, offline-доставку, safety number, ciphertext в PostgreSQL, отсутствие plaintext и крэшей в logcat. Аккаунты должны соответствовать device ID установок; для другой dev-базы задайте `A_EMAIL`, `A_USER`, `B_EMAIL`, `B_USER`, `E2EE_TEST_PASSWORD`.
 - `bash scripts/group-three-clients.sh` проверяет три изолированных клиента: приглашения с pairwise E2EE, отсутствие прежней истории у нового участника, PNG/MP4/WAV/TXT, group receipts, удаление участника и offline delivery. Сначала каждый клиент публикует свои ключи. `CLIENT_A_SUFFIX`, `CLIENT_B_SUFFIX`, `CLIENT_C_SUFFIX` задают application ID; `A_EMAIL`, `A_USER`, `B_EMAIL`, `B_USER`, `C_EMAIL`, `C_USER` — соответствующие тестовые аккаунты. Для новых installation ID нужны новые тестовые аккаунты или явно отозванные старые тестовые устройства: ограничение `DEVICE_LIMIT` не обходится.
 - `bash scripts/sync-fallback-two-clients.sh` проверяет реальный WSS event, затем `am kill` процесса получателя, доставку через `JobScheduler`, восстановление зашифрованного хранилища и обобщённое системное уведомление. Сценарий использует локальные dev-аккаунты, заданные в начале скрипта, и проверяет отсутствие plaintext и крэшей в logcat. Для проверки failover задайте `API_BASE_URL=https://127.0.0.1:9443/ API_FALLBACK_URL=https://127.0.0.1:8443/`: первый локальный endpoint отклоняет соединение, второй обслуживает все запросы.
+- `bash scripts/media-resume-two-clients.sh` создаёт pending upload, выгружает процесс отправителя и дважды запускает `JobScheduler`. Проверяет доставку получателю, сохранение `dispatched` и отсутствие дубликата после повторного resume.
 
 Для ручного прогона реального account/draft сценария передайте `email`, `password` и `username` в `dev.securemessenger.ui.RealAccountFlowTest` через `am instrument`. Тесты `E2eeConversationTest` запускаются приёмочным скриптом, а не без параметров в общем `connectedDebugAndroidTest`.
 

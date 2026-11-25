@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 export MSYS2_ARG_CONV_EXCL='*'
 ADB="${ADB:-/c/Users/aleks/AppData/Local/Android/Sdk/platform-tools/adb.exe}"
+"$ADB" reverse tcp:8443 tcp:8443
 LOGCAT_START="$("$ADB" shell "date '+%m-%d %H:%M:%S.000'" | tr -d '\r')"
 A_SUFFIX="${CLIENT_A_SUFFIX:-}"
 B_SUFFIX="${CLIENT_B_SUFFIX:-.second}"

@@ -1,6 +1,9 @@
 package dev.securemessenger.data.e2ee
 
 import dev.securemessenger.data.AuthRepository
+import dev.securemessenger.data.remote.ApiException
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import dev.securemessenger.shared.DeviceKeysUpload
 import dev.securemessenger.shared.IncomingMessage
 import dev.securemessenger.shared.PreKeyBundleResponse
@@ -65,6 +68,7 @@ class E2eeManager internal constructor(
     private val generateInitial: () -> DeviceKeysUpload,
     private val json: Json,
     private val safetyNumbers: SafetyNumberService = SafetyNumberService(),
+    private val generateRotation: () -> DeviceKeysUpload = generateInitial,
 ) {
     constructor(
         store: PersistentSignalStore,
@@ -85,7 +89,22 @@ class E2eeManager internal constructor(
 
     suspend fun initializeDevice() = withContext(Dispatchers.IO) {
         initialization.withLock {
-            if (store.localText("keys_uploaded") == "true") return@withLock
+            if (store.localText("keys_uploaded") == "true") {
+                if (needsPreKeyCheck()) {
+                    try {
+                        replenishPreKeysIfNeeded()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: IOException) {
+                        store.putLocalText("prekey_refresh_pending", "true")
+                        throw error
+                    } catch (error: ApiException) {
+                        if (error.isTransientPreKeyError()) store.putLocalText("prekey_refresh_pending", "true")
+                        throw error
+                    }
+                }
+                return@withLock
+            }
             val upload = store.localText("pending_upload")?.let {
                 json.decodeFromString<DeviceKeysUpload>(it)
             } ?: generateInitial().also {
@@ -94,6 +113,7 @@ class E2eeManager internal constructor(
             accounts.uploadKeys(upload)
             store.deleteLocalText("pending_upload")
             store.putLocalText("keys_uploaded", "true")
+            store.putLocalText("last_prekey_check", System.currentTimeMillis().toString())
         }
     }
 
@@ -273,6 +293,7 @@ class E2eeManager internal constructor(
         if (savedDevice != null) {
             val address = SignalProtocolAddress(protocolName(user.accountId, savedDevice), 1)
             if (store.containsSession(address)) {
+                refreshPreKeysAfterSession()
                 return RemoteSession(user.accountId, savedDevice, address)
             }
         }
@@ -285,9 +306,64 @@ class E2eeManager internal constructor(
             throw identityChanged(user.accountId)
         }
         store.putLocalText("remote_device:${user.accountId}", response.deviceId)
+        refreshPreKeysAfterSession()
         return RemoteSession(response.accountId, response.deviceId, address)
     }
+
+    private suspend fun refreshPreKeysAfterSession() {
+        if (!needsPreKeyCheck()) return
+        try {
+            replenishPreKeysIfNeeded()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: IOException) {
+            store.putLocalText("prekey_refresh_pending", "true")
+        } catch (error: ApiException) {
+            if (error.isTransientPreKeyError()) store.putLocalText("prekey_refresh_pending", "true")
+            else throw error
+        }
+    }
+
+    private fun ApiException.isTransientPreKeyError(): Boolean = httpStatus == 401 || httpStatus == 429 || httpStatus >= 500
+
+    private fun needsPreKeyCheck(): Boolean {
+        if (store.localText("prekey_refresh_pending") == "true") return true
+        val elapsed = System.currentTimeMillis() - (store.localText("last_prekey_check")?.toLongOrNull() ?: 0L)
+        return elapsed < 0 || elapsed >= PREKEY_CHECK_INTERVAL_MILLIS
+    }
+
+    private suspend fun replenishPreKeysIfNeeded() {
+        val session = accounts.restore() ?: error("No local session")
+        val response = accounts.fetchPreKeyBundle(session.username)
+        if (response.accountId != session.accountId || response.deviceId != session.deviceId ||
+            response.registrationId != store.localRegistrationId
+        ) {
+            throw IdentityChangedException(session.accountId)
+        }
+        val verified = response.toLibsignal().verifySignatures()
+        if (!verified.identityKey.publicKey.serialize().contentEquals(store.identityKeyPair.publicKey.serialize())) {
+            throw IdentityChangedException(session.accountId)
+        }
+        if (response.remainingPreKeys < MIN_REMAINING_PREKEYS) {
+            val fresh = generateRotation()
+            val rotation = DeviceKeysUpload(
+                registrationId = response.registrationId,
+                identityKey = response.identityKey,
+                signedPreKey = response.signedPreKey,
+                preKeys = fresh.preKeys,
+                kyberPreKeys = fresh.kyberPreKeys,
+                lastResortKyberPreKey = response.kyberPreKey,
+            )
+            rotation.validate()
+            accounts.uploadKeys(rotation)
+        }
+        store.putLocalText("last_prekey_check", System.currentTimeMillis().toString())
+        store.deleteLocalText("prekey_refresh_pending")
+    }
 }
+
+private const val PREKEY_CHECK_INTERVAL_MILLIS = 24 * 60 * 60 * 1000L
+private const val MIN_REMAINING_PREKEYS = 20
 
 private class PersistentE2eeStore(
     private val persistent: PersistentSignalStore,

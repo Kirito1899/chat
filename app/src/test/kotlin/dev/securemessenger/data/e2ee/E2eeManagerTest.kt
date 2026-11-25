@@ -105,6 +105,37 @@ class E2eeManagerTest {
     }
 
     @Test
+    fun `low prekeys rotate only one-time keys and retry the same upload`() = runTest {
+        val store = TestStore()
+        val local = generateLocalKeys(store)
+        val recipient = generateLocalKeys(TestStore())
+        val fresh = generateLocalKeys(TestStore())
+        val accounts = FakeAccounts().apply {
+            bundles["sender"] = local.toBundle(SENDER_ACCOUNT, SENDER_DEVICE, useLastResortKyber = true)
+                .copy(remainingPreKeys = 10)
+            bundles["recipient"] = recipient.toBundle(RECIPIENT_ACCOUNT, RECIPIENT_DEVICE)
+            failUploads = 1
+        }
+        store.putLocalText("keys_uploaded", "true")
+        val manager = E2eeManager(store, accounts, { local }, json, generateRotation = { fresh })
+
+        manager.encryptText(UserResponse(RECIPIENT_ACCOUNT, "recipient"), messageId(), "rotation")
+        assertEquals("true", store.localText("prekey_refresh_pending"))
+        manager.initializeDevice()
+
+        assertEquals(2, accounts.uploadAttempts)
+        accounts.uploadRequests.forEach { rotation ->
+            rotation.validate()
+            assertEquals(local.identityKey, rotation.identityKey)
+            assertEquals(local.signedPreKey, rotation.signedPreKey)
+            assertEquals(local.lastResortKyberPreKey, rotation.lastResortKyberPreKey)
+            assertEquals(fresh.preKeys, rotation.preKeys)
+            assertEquals(fresh.kyberPreKeys, rotation.kyberPreKeys)
+        }
+        assertNull(store.localText("prekey_refresh_pending"))
+    }
+
+    @Test
     fun `failed upload retries pending keys without regenerating`() = runTest {
         val store = TestStore()
         val upload = generateLocalKeys(TestStore())
@@ -397,6 +428,8 @@ class E2eeManagerTest {
     private fun fixture(): Fixture {
         val senderStore = TestStore()
         val recipientStore = TestStore()
+        senderStore.putLocalText("last_prekey_check", System.currentTimeMillis().toString())
+        recipientStore.putLocalText("last_prekey_check", System.currentTimeMillis().toString())
         val senderUpload = generateLocalKeys(senderStore)
         val recipientUpload = generateLocalKeys(recipientStore)
         val recipientUser = UserResponse(RECIPIENT_ACCOUNT, "recipient")
@@ -522,7 +555,7 @@ class E2eeManagerTest {
             signedPreKey = signedPreKey,
             preKey = if (includePreKey) preKeys.single() else null,
             kyberPreKey = if (useLastResortKyber) lastResortKyberPreKey else kyberPreKeys.single(),
-            remainingPreKeys = 0,
+            remainingPreKeys = 100,
         )
 
         fun generateLocalKeys(store: SignalProtocolStore): DeviceKeysUpload {
