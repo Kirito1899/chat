@@ -28,6 +28,9 @@
 - Финальный host gate и on-device gate после исправления, затем README и обычный (не WIP) commit/push.
 
 Окружение для продолжения:
+- Пользователь удалил приложения с POCO. `group-three-clients.sh` должен заново собрать и установить main/second/third APK и test APK.
+- Переустановка создаст новые device ID и Signal identity; локальные Signal sessions и история сообщений потеряны. Не полагаться на старые E2EE-сессии или локальный outbox.
+- Серверные аккаунты и device records сохранились. При первом входе возможен `DEVICE_LIMIT`: не ослаблять ограничение и не удалять серверные данные без согласия пользователя. Перед сценарием выбрать контролируемое отзыв старых тестовых устройств или новые тестовые аккаунты.
 - Запуск: `bash scripts/dev-up.sh`, затем `bash scripts/group-three-clients.sh`.
 - PostgreSQL/Mailpit/CA/secrets/media fixtures остаются только в игнорируемом `.local` и не коммитятся.
 - Тестовые media: `.local/test-image.png`, `.local/test-video.mp4`, `.local/test-voice.wav`, `.local/test-file.txt` и файлы в `/sdcard/Android/data/dev.securemessenger.test/files` на POCO.
