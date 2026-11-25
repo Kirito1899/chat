@@ -1,12 +1,14 @@
 package dev.securemessenger.data.sync
 
 import dev.securemessenger.data.remote.ApiException
+import dev.securemessenger.data.remote.EndpointPool
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -21,20 +23,44 @@ class ServerEventClient(
     private val baseUrl: String,
     client: OkHttpClient,
     private val json: Json,
+    fallbackBaseUrl: String? = null,
 ) {
+    private val endpoints = EndpointPool(baseUrl, fallbackBaseUrl)
     private val webSocketClient = client.newBuilder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 
     fun connect(accessToken: String, onEvent: () -> Unit): ServerEventConnection {
-        val url = baseUrl.toHttpUrl().newBuilder()
-            .addPathSegments("v1/events")
-            .build()
+        val url = endpoints.route(
+            baseUrl.toHttpUrl().newBuilder().addPathSegments("v1/events").build(),
+        )
         val request = Request.Builder()
             .url(url)
             .header("Authorization", "Bearer $accessToken")
             .build()
-        return ServerEventConnection(webSocketClient, request, json, onEvent)
+        return ServerEventConnection(webSocketClient, request, json, onEvent) {
+            endpoints.onConnectionOpen(url)
+        }
+    }
+
+    suspend fun connectWithFailover(accessToken: String, onEvent: () -> Unit): ServerEventConnection {
+        val first = connect(accessToken, onEvent)
+        try {
+            first.awaitOpen()
+            return first
+        } catch (error: Throwable) {
+            first.cancel()
+            if (!endpoints.onConnectionFailure(first.endpointUrl, error)) throw error
+        }
+        val second = connect(accessToken, onEvent)
+        try {
+            second.awaitOpen()
+            return second
+        } catch (error: Throwable) {
+            second.cancel()
+            endpoints.onConnectionFailure(second.endpointUrl, error)
+            throw error
+        }
     }
 }
 
@@ -43,6 +69,8 @@ class ServerEventConnection(
     request: Request,
     json: Json,
     private val onEvent: () -> Unit,
+    val endpointUrl: HttpUrl = request.url,
+    private val onConnected: () -> Unit = {},
 ) {
     private val opened = CompletableDeferred<Unit>()
     private val failure = CompletableDeferred<Throwable>()
@@ -53,6 +81,7 @@ class ServerEventConnection(
             request,
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
+                    onConnected()
                     opened.complete(Unit)
                 }
 

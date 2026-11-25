@@ -87,12 +87,12 @@ object AppModule {
     @Provides
     @Singleton
     fun api(client: OkHttpClient, json: Json): MessengerApi =
-        MessengerApi(BuildConfig.API_BASE_URL, client, json)
+        MessengerApi(BuildConfig.API_BASE_URL, client, json, BuildConfig.API_FALLBACK_URL.ifBlank { null })
 
     @Provides
     @Singleton
     fun serverEvents(client: OkHttpClient, json: Json): ServerEventClient =
-        ServerEventClient(BuildConfig.API_BASE_URL, client, json)
+        ServerEventClient(BuildConfig.API_BASE_URL, client, json, BuildConfig.API_FALLBACK_URL.ifBlank { null })
 
     @Provides
     @Singleton

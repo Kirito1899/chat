@@ -16,9 +16,11 @@ PASSWORD=Device-UI-Password-1
 RUN_ID="$(date +%s)"
 WSS_MESSAGE="WSS event $RUN_ID"
 OFFLINE_MESSAGE="Offline fallback $RUN_ID"
+API_ARGS=(-PAPI_BASE_URL="${API_BASE_URL:-https://127.0.0.1:8443/}")
+if [[ -n "${API_FALLBACK_URL:-}" ]]; then API_ARGS+=(-PAPI_FALLBACK_URL="$API_FALLBACK_URL"); fi
 
 build_variant() {
-    ./gradlew -PCLIENT_SUFFIX="$1" assembleDebug :app:assembleDebugAndroidTest
+    ./gradlew "${API_ARGS[@]}" -PCLIENT_SUFFIX="$1" assembleDebug :app:assembleDebugAndroidTest
     cp app/build/outputs/apk/debug/app-debug.apk ".local/$2.apk"
     cp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk ".local/$2-test.apk"
 }

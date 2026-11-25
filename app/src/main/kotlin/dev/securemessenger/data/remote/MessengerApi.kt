@@ -41,7 +41,10 @@ class MessengerApi(
     private val baseUrl: String,
     private val client: OkHttpClient,
     private val json: Json = Json,
+    fallbackBaseUrl: String? = null,
 ) {
+    private val endpoints = EndpointPool(baseUrl, fallbackBaseUrl)
+
     suspend fun register(request: RegisterRequest): RegisterResponse =
         decode(execute(post("/v1/auth/register", request)))
 
@@ -171,16 +174,20 @@ class MessengerApi(
     private suspend fun execute(request: Request): String = executeBytes(request).decodeToString()
 
     private suspend fun executeBytes(request: Request): ByteArray = withContext(Dispatchers.IO) {
-        client.newCall(request).execute().use { response ->
-            val body = response.body.bytes()
-            if (!response.isSuccessful) {
-                val code = runCatching { json.decodeFromString<ErrorResponse>(body.decodeToString()).code }
-                    .getOrDefault("HTTP_${response.code}")
-                throw ApiException(code, response.code)
+        endpoints.execute(request.url) { url ->
+            client.newCall(request.newBuilder().url(url).build()).execute().use { response ->
+                val body = response.body.bytes()
+                if (!response.isSuccessful) {
+                    val code = runCatching { json.decodeFromString<ErrorResponse>(body.decodeToString()).code }
+                        .getOrDefault("HTTP_${response.code}")
+                    throw ApiException(code, response.code)
+                }
+                body
             }
-            body
         }
     }
+
+    fun endpointStats(): EndpointSnapshot = endpoints.snapshot()
 
     private inline fun <reified T> secureRequest(method: String, path: String, value: T, accessToken: String): Request {
         val body = json.encodeToString(value).toRequestBody("application/json".toMediaType())

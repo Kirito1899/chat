@@ -52,7 +52,7 @@ class SyncFallbackTest {
                     readyMarker.delete()
                     val received = CompletableDeferred<Unit>()
                     val connection = entry.accounts().withValidAccessToken { token ->
-                        entry.serverEvents().connect(token) { received.complete(Unit) }
+                        entry.serverEvents().connectWithFailover(token) { received.complete(Unit) }
                     }
                     try {
                         connection.awaitOpen()
@@ -64,11 +64,22 @@ class SyncFallbackTest {
                     }
                 }
                 "send_direct" -> {
-                    val peer = entry.accounts().searchByUsername(peerUsername)
-                    entry.messages().sendText(peer, expected)
-                    val status = entry.messages().observeMessages(peer.accountId).first()
-                        .single { it.body == expected }.status
-                    assertTrue(status == "SENT" || status == "DELIVERED" || status == "READ")
+                    try {
+                        val peer = entry.accounts().searchByUsername(peerUsername)
+                        InstrumentationRegistry.getInstrumentation().sendStatus(0, android.os.Bundle().apply { putString("stage", "peer_resolved") })
+                        entry.messages().sendText(peer, expected)
+                        InstrumentationRegistry.getInstrumentation().sendStatus(0, android.os.Bundle().apply { putString("stage", "message_sent") })
+                        val status = entry.messages().observeMessages(peer.accountId).first()
+                            .single { it.body == expected }.status
+                        assertTrue(status == "SENT" || status == "DELIVERED" || status == "READ")
+                    } catch (error: Exception) {
+                        val stats = entry.api().endpointStats()
+                        InstrumentationRegistry.getInstrumentation().sendStatus(
+                            0,
+                            android.os.Bundle().apply { putString("endpoint_debug", stats.toString()) },
+                        )
+                        throw error
+                    }
                 }
                 "offline_notification" -> {
                     val job = requireNotNull(context.getSystemService(JobScheduler::class.java).getPendingJob(SyncJobService.JOB_ID))
@@ -92,7 +103,6 @@ class SyncFallbackTest {
                 }
                 else -> error("Unknown mode $mode")
             }
-            Unit
         }
     }
 

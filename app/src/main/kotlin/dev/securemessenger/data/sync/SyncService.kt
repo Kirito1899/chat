@@ -55,7 +55,7 @@ class SyncService : Service() {
                     continue
                 }
                 val connected = accounts.withValidAccessToken { token ->
-                    events.connect(token) { onServerEvent() }
+                    events.connectWithFailover(token) { onServerEvent() }
                 }
                 connection = connected
                 connected.awaitOpen()
