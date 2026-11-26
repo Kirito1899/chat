@@ -25,6 +25,7 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.Semaphore
 
 class AuthException(val code: String) : RuntimeException(code)
 
@@ -39,6 +40,7 @@ class AuthService(
     private val challengeTtl: Duration = Duration.ofMinutes(10),
 ) {
     private val dummyPasswordHash by lazy { passwordHasher.hash("dummy-password-for-timing") }
+    private val hashSlots = Semaphore(2)
 
     fun createInvite(): String {
         val invite = tokens.newToken()
@@ -56,7 +58,7 @@ class AuthService(
             id = UUID.randomUUID(),
             email = email,
             username = username,
-            passwordHash = passwordHasher.hash(request.password),
+            passwordHash = withHashSlot { passwordHasher.hash(request.password) },
             emailVerified = false,
         )
         val accepted = try {
@@ -94,7 +96,7 @@ class AuthService(
         val deviceId = runCatching { UUID.fromString(request.deviceId) }.getOrNull()
             ?: throw AuthException("INVALID_DEVICE")
         val account = repository.findAccountByEmail(email)
-        val passwordMatches = passwordHasher.verify(request.password, account?.passwordHash ?: dummyPasswordHash)
+        val passwordMatches = withHashSlot { passwordHasher.verify(request.password, account?.passwordHash ?: dummyPasswordHash) }
         if (account == null || !passwordMatches) throw AuthException("INVALID_CREDENTIALS")
         if (!account.emailVerified) throw AuthException("EMAIL_NOT_VERIFIED")
         return issueTokens(account, deviceId)
@@ -139,7 +141,7 @@ class AuthService(
         val email = normalizedEmailOrInvalidCode(request.email)
         validateCode(request.code)
         validatePassword(request.newPassword)
-        val passwordHash = passwordHasher.hash(request.newPassword)
+        val passwordHash = withHashSlot { passwordHasher.hash(request.newPassword) }
         if (!repository.resetPasswordWithChallenge(email, tokens.hashEmailCode(request.code), passwordHash, now())) {
             throw AuthException("INVALID_CODE")
         }
@@ -220,6 +222,15 @@ class AuthService(
             PasswordError.TOO_SHORT -> throw AuthException("PASSWORD_TOO_SHORT")
             PasswordError.TOO_LONG -> throw AuthException("PASSWORD_TOO_LONG")
             null -> Unit
+        }
+    }
+
+    private inline fun <T> withHashSlot(block: () -> T): T {
+        hashSlots.acquire()
+        return try {
+            block()
+        } finally {
+            hashSlots.release()
         }
     }
 

@@ -1,6 +1,6 @@
 # Linux deployment для закрытого круга
 
-Расчётная конфигурация: один небольшой always-on Linux-хост, Ktor + PostgreSQL на том же хосте, HTTPS напрямую в Ktor на `8443`, systemd sandbox. Публичный SSH/PostgreSQL port forwarding не требуется. Откройте только нужные порты приложения и HTTP-01 challenge (80/tcp для первоначального certbot).
+Расчётная конфигурация: один небольшой always-on Linux-хост, Ktor + PostgreSQL на том же хосте, HTTPS напрямую в Ktor на `8443`, systemd sandbox. Для хоста с 1 ГБ RAM JVM ограничена `-Xmx256m`, а одновременные Argon2-вычисления — двумя. Публичный SSH/PostgreSQL port forwarding не требуется. Откройте только нужные порты приложения и HTTP-01 challenge (80/tcp для первоначального certbot).
 
 ## Требования на хосте
 

@@ -46,6 +46,7 @@ TEMP_CONFIG=$(mktemp /etc/secure-messenger/server.env.XXXXXX)
 {
     write_assignment KTOR_HOST 0.0.0.0
     write_assignment KTOR_SSL_PORT 8443
+    write_assignment JAVA_OPTS "-Xms64m -Xmx256m -XX:+UseG1GC"
     write_assignment PUBLIC_DOMAIN "$PUBLIC_DOMAIN"
     write_assignment LETSENCRYPT_EMAIL "${LETSENCRYPT_EMAIL:-$SMTP_FROM}"
     write_assignment LETSENCRYPT_AGREE_TOS "${LETSENCRYPT_AGREE_TOS:-false}"

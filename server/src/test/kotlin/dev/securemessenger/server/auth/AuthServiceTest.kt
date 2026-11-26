@@ -2,6 +2,7 @@ package dev.securemessenger.server.auth
 
 import dev.securemessenger.server.mail.MailPurpose
 import dev.securemessenger.server.security.Argon2PasswordHasher
+import dev.securemessenger.server.security.PasswordHasher
 import dev.securemessenger.server.security.TokenService
 import dev.securemessenger.shared.LoginRequest
 import dev.securemessenger.shared.PasswordResetRequest
@@ -13,6 +14,10 @@ import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -108,6 +113,45 @@ class AuthServiceTest {
         assertFailsWith<AuthException> {
             service.login(LoginRequest(registration.email, "initial-password-1", UUID.randomUUID().toString()))
         }
+    }
+
+    @Test
+    fun `password verification is bounded to two concurrent hash operations`() {
+        val active = AtomicInteger()
+        val maximum = AtomicInteger()
+        val parallel = CountDownLatch(1)
+        val hasher = object : PasswordHasher {
+            override fun hash(password: String): String = "unused"
+
+            override fun verify(password: String, encoded: String): Boolean {
+                val current = active.incrementAndGet()
+                maximum.updateAndGet { previous -> maxOf(previous, current) }
+                if (current >= 2) parallel.countDown()
+                return try {
+                    Thread.sleep(75)
+                    false
+                } finally {
+                    active.decrementAndGet()
+                }
+            }
+        }
+        val limited = AuthService(repository, hasher, TokenService(ByteArray(32) { 9 }), mail, clock)
+        val executor = Executors.newFixedThreadPool(12)
+        try {
+            val results = (1..12).map {
+                executor.submit<Boolean> {
+                    val error = runCatching {
+                        limited.login(LoginRequest("missing@example.com", "wrong-password-1", deviceId.toString()))
+                    }.exceptionOrNull()
+                    error is AuthException && error.code == "INVALID_CREDENTIALS"
+                }
+            }
+            assertTrue(parallel.await(1, TimeUnit.SECONDS), "Hash calls did not overlap")
+            results.forEach { assertTrue(it.get(2, TimeUnit.SECONDS)) }
+        } finally {
+            executor.shutdownNow()
+        }
+        assertEquals(2, maximum.get())
     }
 
     private fun register(
