@@ -4,8 +4,10 @@ import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -17,6 +19,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.test.core.app.ApplicationProvider
@@ -78,11 +81,30 @@ class GroupConversationTest {
             }
             "create" -> {
                 ensureLogin(email, password)
-                compose.onNodeWithTag("create_group_toggle").performClick()
-                compose.onNodeWithTag("group_title_input").performTextInput(title)
-                compose.onNodeWithTag("group_member_input").performTextInput(member)
-                compose.onNodeWithTag("create_group_button").performClick()
-                compose.waitUntil(30_000) { compose.onAllNodesWithTag("group_members_button").fetchSemanticsNodes().isNotEmpty() }
+                reportCreateStage("before_toggle")
+                compose.onNodeWithTag("create_group_toggle").performScrollTo().performClick()
+                compose.waitUntil(5_000) { compose.onAllNodesWithTag("group_title_input").fetchSemanticsNodes().isNotEmpty() }
+                reportCreateStage("expanded")
+                try {
+                    compose.onNodeWithTag("group_title_input").performTextInput(title)
+                } catch (error: Throwable) {
+                    reportCreateStage("title_failed")
+                    throw error
+                }
+                compose.waitUntil(5_000) { editableLength("group_title_input") == title.length }
+                reportCreateStage("title_entered")
+                compose.onNodeWithTag("group_member_input").performScrollTo().performTextInput(member)
+                compose.waitUntil(5_000) { editableLength("group_member_input") == member.length }
+                reportCreateStage("member_entered")
+                hideKeyboard()
+                compose.onNodeWithTag("create_group_button").performScrollTo().assertIsEnabled().performClick()
+                reportCreateStage("create_clicked")
+                try {
+                    compose.waitUntil(30_000) { compose.onAllNodesWithTag("group_members_button").fetchSemanticsNodes().isNotEmpty() }
+                } catch (error: Throwable) {
+                    reportCreateStage("create_failed")
+                    throw error
+                }
             }
             "send" -> {
                 openGroup(title, email, password)
@@ -247,9 +269,39 @@ class GroupConversationTest {
         Unit
     }
 
+    private fun hideKeyboard() {
+        compose.activityRule.scenario.onActivity { activity ->
+            activity.getSystemService(InputMethodManager::class.java)
+                .hideSoftInputFromWindow(activity.window.decorView.windowToken, 0)
+        }
+        compose.waitForIdle()
+    }
+
+    private fun reportCreateStage(stage: String) {
+        var report = stage
+        compose.activityRule.scenario.onActivity { activity ->
+            val provider = ViewModelProvider(activity)
+            val groups = provider[GroupsViewModel::class.java].state.value
+            val auth = provider[AuthViewModel::class.java].state.value
+            report += "; selected=${groups.selectedGroup?.group?.groupId}; groups=${groups.groups.size}; auth=${auth.destination}; error=${groups.error}; busy=${groups.busy}"
+        }
+        report += "; lifecycle=${compose.activityRule.scenario.state}"
+        report += "; list=${compose.onAllNodesWithTag("chat_list").fetchSemanticsNodes().size}"
+        report += "; form=${compose.onAllNodesWithTag("group_title_input").fetchSemanticsNodes().size}"
+        report += "; titleLength=${editableLength("group_title_input")}; memberLength=${editableLength("group_member_input")}"
+        InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply { putString("create_stage", report) })
+    }
+
+    private fun editableLength(tag: String): Int? = compose.onAllNodesWithTag(tag).fetchSemanticsNodes()
+        .firstOrNull()?.let { node -> runCatching { node.config[SemanticsProperties.EditableText].text.length }.getOrNull() }
+
     private fun ensureLogin(email: String, password: String) {
         compose.waitUntil(20_000) { compose.activityRule.scenario.state == Lifecycle.State.RESUMED }
-        compose.waitForIdle()
+        compose.waitUntil(20_000) {
+            compose.onAllNodesWithTag("chat_list").fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodesWithTag("message_input").fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodesWithTag("email_input").fetchSemanticsNodes().isNotEmpty()
+        }
         val localUsername = InstrumentationRegistry.getArguments().getString("local_username").orEmpty()
         if (compose.onAllNodesWithTag("group_members_button").fetchSemanticsNodes().isNotEmpty() ||
             compose.onAllNodesWithTag("message_input").fetchSemanticsNodes().isNotEmpty()
@@ -305,18 +357,40 @@ class GroupConversationTest {
         } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
             throw AssertionError("Group UI list was not loaded; error=${viewModel.state.value.error}", error)
         }
+        if (viewModel.state.value.selectedGroup?.group?.groupId == groupId) {
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("group_members_button").fetchSemanticsNodes().isNotEmpty() }
+            return
+        }
+        if (compose.onAllNodesWithTag("chat_list").fetchSemanticsNodes().isEmpty() &&
+            compose.onAllNodesWithText("Назад").fetchSemanticsNodes().isNotEmpty()
+        ) {
+            compose.onNodeWithText("Назад").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("chat_list").fetchSemanticsNodes().isNotEmpty() }
+        }
         val ids = viewModel.state.value.groups.map { it.group.groupId }
         InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply { putString("groups_ui_ids", ids.joinToString()) })
-        compose.waitForIdle()
+        hideKeyboard()
         var scrollError: String? = null
-        compose.waitUntil(15_000) {
-            try {
-                compose.onNodeWithTag("chat_list").performScrollToNode(hasTestTag("group_item_$groupId"))
-                true
-            } catch (error: Throwable) {
-                scrollError = error.message
-                false
+        try {
+            compose.waitUntil(15_000) {
+                try {
+                    compose.onNodeWithTag("chat_list").performScrollToNode(hasTestTag("group_item_$groupId"))
+                    true
+                } catch (error: Throwable) {
+                    scrollError = error.message
+                    false
+                }
             }
+        } catch (error: ComposeTimeoutException) {
+            compose.activityRule.scenario.onActivity { activity ->
+                val provider = ViewModelProvider(activity)
+                val direct = provider[ChatsViewModel::class.java].state.value.selectedChat?.accountId
+                val group = provider[GroupsViewModel::class.java].state.value.selectedGroup?.group?.groupId
+                InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply {
+                    putString("navigation_timeout", "direct=$direct; group=$group; target=$groupId")
+                })
+            }
+            throw error
         }
         InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply { putString("scroll_error", scrollError ?: "none") })
         compose.onNodeWithTag("group_item_$groupId").performClick()

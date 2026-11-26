@@ -34,7 +34,11 @@ class RealAccountFlowTest {
         val email = arguments.getString("email") ?: error("email instrumentation argument is required")
         val password = arguments.getString("password") ?: error("password instrumentation argument is required")
         val username = arguments.getString("username") ?: error("username instrumentation argument is required")
-        compose.waitForIdle()
+        compose.waitUntil(20_000) {
+            compose.onAllNodesWithTag("chat_list").fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodesWithTag("message_input").fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodesWithTag("email_input").fetchSemanticsNodes().isNotEmpty()
+        }
         if (compose.onAllNodesWithTag("message_input").fetchSemanticsNodes().isNotEmpty()) {
             compose.onNodeWithText("Назад").performClick()
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("chat_list").fetchSemanticsNodes().isNotEmpty() }

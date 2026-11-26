@@ -57,6 +57,7 @@ class ChatsViewModel @Inject constructor(
     private var draftRevision = 0L
     private var messagesJob: Job? = null
     private var syncJob: Job? = null
+    private var restoreSelection = true
 
     init {
         val accountId = savedState.get<String>(CHAT_ID)
@@ -65,8 +66,10 @@ class ChatsViewModel @Inject constructor(
             selectChat(UserResponse(accountId, username))
         }
         viewModelScope.launch {
-            if (savedState.get<String>(CHAT_ID) == null) {
-                drafts.selectedDirect()?.let { selectChat(it) }
+            if (restoreSelection && savedState.get<String>(CHAT_ID) == null) {
+                drafts.selectedDirect()?.let {
+                    if (restoreSelection && savedState.get<String>(CHAT_ID) == null) selectChat(it)
+                }
             }
         }
     }
@@ -95,6 +98,7 @@ class ChatsViewModel @Inject constructor(
     }
 
     fun selectChat(user: UserResponse) {
+        restoreSelection = false
         val revision = ++draftRevision
         savedState[CHAT_ID] = user.accountId
         savedState[CHAT_USERNAME] = user.username
@@ -258,6 +262,7 @@ class ChatsViewModel @Inject constructor(
     }
 
     fun closeChat() {
+        restoreSelection = false
         draftRevision++
         messagesJob?.cancel()
         syncJob?.cancel()

@@ -33,6 +33,7 @@ data class AuthUiState(
     val error: String? = null,
     val info: String? = null,
     val session: TokenResponse? = null,
+    val restoreComplete: Boolean = false,
 )
 
 @HiltViewModel
@@ -52,10 +53,13 @@ class AuthViewModel @Inject constructor(
         viewModelScope.launch {
             val session = accounts.restore()
             if (session != null) {
-                mutableState.value = mutableState.value.copy(session = session)
+                mutableState.value = mutableState.value.copy(session = session, restoreComplete = true)
                 navigate(AuthDestination.CHATS)
-            } else if (mutableState.value.destination == AuthDestination.CHATS) {
-                navigate(AuthDestination.LOGIN)
+            } else {
+                mutableState.value = mutableState.value.copy(restoreComplete = true)
+                if (mutableState.value.destination == AuthDestination.CHATS) {
+                    navigate(AuthDestination.LOGIN)
+                }
             }
         }
     }
@@ -102,7 +106,7 @@ class AuthViewModel @Inject constructor(
 
     fun logout() = launch {
         accounts.logout()
-        mutableState.value = AuthUiState()
+        mutableState.value = AuthUiState(restoreComplete = true)
         navigate(AuthDestination.LOGIN)
     }
 

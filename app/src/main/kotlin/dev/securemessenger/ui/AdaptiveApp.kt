@@ -138,7 +138,11 @@ fun AdaptiveApp() {
     }
 
     Surface(Modifier.fillMaxSize().safeDrawingPadding()) {
-    if (chatsState.safetyNumber != null) {
+    if (!authState.restoreComplete) {
+        Box(Modifier.fillMaxSize().testTag("session_loading"), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+    } else if (chatsState.safetyNumber != null) {
         SafetyNumberScreen(
             safetyNumber = chatsState.safetyNumber!!,
             onBack = chatsViewModel::closeSafetyNumber,
@@ -359,16 +363,16 @@ private fun ChatListPane(
         HorizontalDivider()
         LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("chat_list"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             selectedChat?.let { chat ->
-                item {
+                item(key = "direct:${chat.accountId}") {
                     Card(Modifier.fillMaxWidth().clickable { onSelect(chat) }) {
                         Text("@${chat.username}", Modifier.padding(16.dp))
                     }
                 }
             }
             if (selectedChat == null && groups.isEmpty()) {
-                item { Text("Чатов пока нет. Найдите пользователя по юзернейму.") }
+                item(key = "empty_direct") { Text("Чатов пока нет. Найдите пользователя по юзернейму.") }
             }
-            item {
+            item(key = "group_creation") {
                 GroupCreationSection(groups.isNotEmpty(), selectedGroup, onCreateGroup, groupError)
             }
             groupCards(groups, selectedGroup, onSelectGroup)

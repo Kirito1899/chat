@@ -42,8 +42,10 @@ class AuthViewModelTest {
     fun `existing session restores chats destination`() = runTest {
         accounts.session = tokens()
         viewModel = AuthViewModel(accounts, SavedStateHandle())
+        assertFalse(viewModel.state.value.restoreComplete)
         advanceUntilIdle()
         assertEquals(AuthDestination.CHATS, viewModel.state.value.destination)
+        assertEquals(true, viewModel.state.value.restoreComplete)
     }
 
     @Test

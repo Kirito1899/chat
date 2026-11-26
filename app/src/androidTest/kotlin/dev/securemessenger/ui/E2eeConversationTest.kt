@@ -35,7 +35,11 @@ class E2eeConversationTest {
         val reviewSafety = args.getString("review_safety") == "true"
 
         keepScreenOn()
-        compose.waitForIdle()
+        compose.waitUntil(20_000) {
+            compose.onAllNodesWithTag("chat_list").fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodesWithTag("message_input").fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodesWithTag("email_input").fetchSemanticsNodes().isNotEmpty()
+        }
         if (compose.onAllNodesWithTag("message_input").fetchSemanticsNodes().isNotEmpty()) {
             compose.onNodeWithText("Назад").performClick()
             compose.waitUntil(5_000) {

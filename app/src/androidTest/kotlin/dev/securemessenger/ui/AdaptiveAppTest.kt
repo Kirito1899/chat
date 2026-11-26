@@ -9,12 +9,15 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextInput
 import dev.securemessenger.data.local.MessageEntity
 import dev.securemessenger.shared.TokenResponse
 import dev.securemessenger.shared.UserResponse
 import dev.securemessenger.shared.GroupResponse
 import dev.securemessenger.shared.GroupMemberResponse
 import dev.securemessenger.data.GroupConversation
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.runner.RunWith
@@ -168,6 +171,50 @@ class AdaptiveAppTest {
         compose.onNodeWithTag("group_item_${target.group.groupId}").performClick()
 
         assertEquals(target, selected)
+    }
+
+    @Test
+    fun group_creation_form_survives_group_list_loading() {
+        val groups = mutableStateOf(emptyList<GroupConversation>())
+        compose.setContent {
+            HomeLayout(
+                isWide = false,
+                fold = FoldState(),
+                session = session,
+                searchResult = null,
+                selectedChat = null,
+                draft = "",
+                busy = false,
+                error = null,
+                onSearch = {},
+                onSelect = {},
+                onCloseChat = {},
+                onDraftChange = {},
+                onLogout = {},
+                groups = groups.value,
+            )
+        }
+        compose.onNodeWithTag("create_group_toggle").performClick()
+        compose.onNodeWithTag("group_title_input").performTextInput("Новая группа")
+
+        compose.runOnIdle {
+            groups.value = listOf(
+                GroupConversation(
+                    GroupResponse(
+                        "loaded-group",
+                        session.accountId,
+                        listOf(GroupMemberResponse(session.accountId, session.username, "OWNER")),
+                    ),
+                    "Loaded group",
+                ),
+            )
+        }
+
+        compose.onNodeWithTag("group_title_input").assertIsDisplayed()
+        assertEquals(
+            "Новая группа",
+            compose.onNodeWithTag("group_title_input").fetchSemanticsNode().config[SemanticsProperties.EditableText].text,
+        )
     }
 
     @Test
