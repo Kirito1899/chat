@@ -22,6 +22,26 @@ android {
         buildConfigField("String", "API_FALLBACK_URL", "\"${providers.gradleProperty("API_FALLBACK_URL").orElse("").get()}\"")
     }
 
+    val signingEnvironment = listOf(
+        "MESSENGER_KEYSTORE_FILE",
+        "MESSENGER_KEYSTORE_PASSWORD",
+        "MESSENGER_KEY_ALIAS",
+        "MESSENGER_KEY_PASSWORD",
+    ).associateWith { providers.environmentVariable(it) }
+    signingConfigs {
+        create("release") {
+            if (signingEnvironment.values.any { it.isPresent }) {
+                require(signingEnvironment.values.all { it.isPresent }) {
+                    "Set all MESSENGER_KEYSTORE_FILE, MESSENGER_KEYSTORE_PASSWORD, MESSENGER_KEY_ALIAS and MESSENGER_KEY_PASSWORD variables"
+                }
+                storeFile = file(signingEnvironment.getValue("MESSENGER_KEYSTORE_FILE").get())
+                storePassword = signingEnvironment.getValue("MESSENGER_KEYSTORE_PASSWORD").get()
+                keyAlias = signingEnvironment.getValue("MESSENGER_KEY_ALIAS").get()
+                keyPassword = signingEnvironment.getValue("MESSENGER_KEY_PASSWORD").get()
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = providers.gradleProperty("CLIENT_SUFFIX").orNull
@@ -30,6 +50,8 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         release {
+            applicationIdSuffix = providers.gradleProperty("CLIENT_SUFFIX").orNull
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

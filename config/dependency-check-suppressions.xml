@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <suppress>
+        <notes><![CDATA[
+            io.ktor:ktor-server-netty-jvm is Ktor's adapter (automatic module
+            io.ktor.server.netty), not the io.netty:netty artifact. Actual Netty
+            dependencies are scanned independently as io.netty packages.
+        ]]></notes>
+        <filePath regex="true">.*ktor-server-netty-jvm-.*\.jar$</filePath>
+        <cpe>cpe:/a:netty:netty</cpe>
+    </suppress>
+    <suppress>
+        <notes><![CDATA[
+            CVE-2021-4277 affects the unrelated fredsmith utils screenshot_sync
+            component, not Ktor's io.ktor:ktor-io or io.ktor:ktor-utils artifacts.
+        ]]></notes>
+        <filePath regex="true">.*ktor-(io|utils)-jvm-.*\.jar$</filePath>
+        <vulnerabilityName>CVE-2021-4277</vulnerabilityName>
+    </suppress>
+    <suppress>
+        <notes><![CDATA[
+            CVE-2018-1258 requires Spring Framework 5.0.5 method security.
+            This artifact is only spring-security-crypto used for Argon2 hashing;
+            the server has neither Spring Framework nor method security enabled.
+        ]]></notes>
+        <filePath regex="true">.*spring-security-crypto-.*\.jar$</filePath>
+        <vulnerabilityName>CVE-2018-1258</vulnerabilityName>
+    </suppress>
+</suppressions>

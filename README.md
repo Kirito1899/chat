@@ -82,7 +82,19 @@ PostgreSQL integration tests используют Zonky с настоящими 
 
 ## Сканирование зависимостей
 
-`bash scripts/security-scan.sh` собирает debug APK и серверный `installDist`, затем запускает официальный OWASP Dependency-Check 12.1.9 против APK и всех server jars. HTML/JSON-отчёты сохраняются в `build/security/`; CVSS High/Critical (7+) завершает проверку ошибкой. Сканер устанавливается локально в `.local/security-tools/` и проверяется по SHA-256 в скрипте. При наличии `NVD_API_KEY` его можно передать через переменную окружения, не записывая в проект. Используется 12.1.9, поскольку 13.0.0 имеет [подтверждённый upstream-баг обновления NVD без API key](https://github.com/dependency-check/DependencyCheck/issues/8715). Сканирование зависимостей не заменяет аудит кода и не доказывает отсутствие уязвимостей.
+`bash scripts/security-scan.sh` собирает debug APK и серверный `installDist`, затем запускает официальный OWASP Dependency-Check 12.1.9 против APK и всех server jars. HTML/JSON-отчёты сохраняются в `build/security/`; CVSS High/Critical (7+) завершает проверку ошибкой. Сканер устанавливается локально в `.local/security-tools/` и проверяется по SHA-256 в скрипте. При наличии `NVD_API_KEY` его можно передать через переменную окружения, не записывая в проект. Используется 12.1.9, поскольку 13.0.0 имеет [подтверждённый upstream-баг обновления NVD без API key](https://github.com/dependency-check/DependencyCheck/issues/8715). Ktor обновлён до 3.6.2, Netty — до 4.2.21.Final, Kotlin Reflect — до 2.4.20. Узкие suppression-правила для подтверждённых ложных сопоставлений находятся в `config/dependency-check-suppressions.xml`; реальные Netty-библиотеки сканируются отдельно. Последний прогон не оставил неподавленных CVE, но OSS Index без отдельных credentials отключён. Сканирование зависимостей не заменяет аудит кода и не доказывает отсутствие уязвимостей.
+
+## Release APK и server distribution
+
+```bash
+API_BASE_URL=https://chat.example.org/ bash scripts/build-release.sh
+```
+
+Скрипт собирает minified release APK и `server/build/install/server`, затем проверяет подпись через `apksigner.jar`. При первом запуске создаётся RSA-3072 keystore в `.local/release/securemessenger-release.p12`; параметры доступа сохраняются только в `.local/release-signing.sh`. Секреты не коммитятся. Сделайте зашифрованную резервную копию обоих путей: потеря ключа не позволит выпускать обновления, а его утечка позволит подписывать чужие APK от имени проекта. `API_FALLBACK_URL` необязателен, но тоже должен использовать HTTPS.
+
+Для локальной проверки подписи и запуска без production endpoint используется `ALLOW_LOCAL_RELEASE=true CLIENT_SUFFIX=.release bash scripts/build-release.sh`. Отдельный application ID не заменяет debug-данные. Такая сборка не является production configuration: release доверяет системным CA, а не локальному dev CA, и должен использовать публичный HTTPS endpoint.
+
+Готовый APK находится в `app/build/outputs/apk/release/app-release.apk`, серверный дистрибутив — в `server/build/install/server/`. Для production APK задайте настоящий `API_BASE_URL` вместо `chat.example.org`. Публикация исходного кода и лицензия AGPL находятся в репозитории проекта; не удаляйте `LICENSE` и уведомления о лицензиях зависимостей при распространении.
 
 ## Production-границы
 

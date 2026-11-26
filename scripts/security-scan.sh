@@ -32,6 +32,7 @@ args=(
     --scan "$ROOT/app/build/outputs/apk/debug/app-debug.apk"
     --scan "$ROOT/server/build/install/server/lib"
     --data "$ROOT/.local/dependency-check-data"
+    --suppression "$ROOT/config/dependency-check-suppressions.xml"
     --out "$ROOT/build/security"
     --format HTML
     --format JSON
