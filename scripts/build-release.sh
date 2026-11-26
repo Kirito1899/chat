@@ -48,7 +48,7 @@ if [[ -n "${API_FALLBACK_URL:-}" ]]; then gradle_args+=(-PAPI_FALLBACK_URL="$API
 if [[ -n "${CLIENT_SUFFIX:-}" ]]; then gradle_args+=(-PCLIENT_SUFFIX="$CLIENT_SUFFIX"); fi
 ./gradlew "${gradle_args[@]}"
 
-APK="$ROOT/app/build/outputs/apk/release/app-release.apk"
+APK="$(cygpath -m "$ROOT/app/build/outputs/apk/release/app-release.apk")"
 APKSIGNER_JAR="${APKSIGNER_JAR:-${LOCALAPPDATA:-/c/Users/aleks/AppData/Local}/Android/Sdk/build-tools/37.0.0/lib/apksigner.jar}"
 if [[ ! -f "$APKSIGNER_JAR" ]]; then
     printf 'apksigner.jar was not found; set APKSIGNER_JAR to its path\n' >&2
