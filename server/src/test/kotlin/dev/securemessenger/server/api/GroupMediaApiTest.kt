@@ -48,6 +48,7 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class GroupMediaApiTest {
     @Test
@@ -96,6 +97,40 @@ class GroupMediaApiTest {
         assertEquals(HttpStatusCode.PartialContent, response.status)
         assertEquals("bytes 4-31/32", response.headers[HttpHeaders.ContentRange])
         assertContentEquals(ByteArray(28) { (it + 4).toByte() }, response.body<ByteArray>())
+    }
+
+    @Test
+    fun `media range fuzz returns bounded responses without internal errors`() = testApplication {
+        val client = client(FakeGroupRepository(), FakeMediaRepository())
+        val malformed = listOf(
+            "bytes=", "bytes=-", "bytes=a-b", "bytes=1-2-3", "bytes=1--2",
+            "bytes=9223372036854775808-", "items=1-2", "bytes=1-2,4-5", "bytes=-1",
+            "bytes=--1", "bytes=0-abc", "bytes=abc-1", "bytes=0x10-20",
+        )
+        malformed.forEach { range ->
+            val response = client.get("/v1/media/$MEDIA_ID/content") {
+                authenticate()
+                header(HttpHeaders.Range, range)
+            }
+            assertEquals(HttpStatusCode.BadRequest, response.status, "range=$range")
+        }
+
+        val random = kotlin.random.Random(42)
+        repeat(100) {
+            val start = listOf(0L, 1L, 31L, 32L, 33L, Long.MAX_VALUE).random(random)
+            val end = listOf(null, 0L, 1L, 31L, 32L, Long.MAX_VALUE).random(random)
+            val range = "bytes=$start-${end?.toString().orEmpty()}"
+            val response = client.get("/v1/media/$MEDIA_ID/content") {
+                authenticate()
+                header(HttpHeaders.Range, range)
+            }
+            assertTrue(
+                response.status == HttpStatusCode.PartialContent ||
+                    response.status == HttpStatusCode.OK ||
+                    response.status == HttpStatusCode.RequestedRangeNotSatisfiable,
+                "range=$range produced ${response.status}",
+            )
+        }
     }
 
     private fun ApplicationTestBuilder.client(
