@@ -96,6 +96,8 @@ API_BASE_URL=https://chat.example.org/ bash scripts/build-release.sh
 
 Готовый APK находится в `app/build/outputs/apk/release/app-release.apk`, серверный дистрибутив — в `server/build/install/server/`. Для production APK задайте настоящий `API_BASE_URL` вместо `chat.example.org`. Публикация исходного кода и лицензия AGPL находятся в репозитории проекта; не удаляйте `LICENSE` и уведомления о лицензиях зависимостей при распространении.
 
+Файлы для установки на always-on Linux-хост, systemd sandbox, TLS renewal и зашифрованные резервные копии находятся в `deploy/`; инструкции — в `deploy/README.md`. Пакет сервера собирается командой `bash scripts/package-server.sh`.
+
 ## Production-границы
 
 Текущая dev-конфигурация не является production deployment. Для него нужны выделенный Linux-хост, публичный CA certificate, реальный SMTP с TLS, отдельные production-секреты, резервные копии, мониторинг, нагрузочное тестирование и независимый security audit. `KTOR_HOST` по умолчанию безопасно ограничен `127.0.0.1`. Автоматические тесты снижают риск ошибок, но не доказывают отсутствие всех уязвимостей.
