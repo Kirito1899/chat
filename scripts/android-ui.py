@@ -146,9 +146,21 @@ def open_chat(package, peer):
 def send_message(message):
     input_field("Черновик сообщения", message)
     hide_keyboard()
+    print("Draft is visible:", find(message) is not None, flush=True)
+    send_node = find("Отправить", desc=True)
+    if send_node is not None:
+        print("Send icon enabled/clickable:", send_node.get("enabled"), send_node.get("clickable"), flush=True)
     tap("Отправить", desc=True)
-    wait_text(message)
-    wait_text("Черновик сообщения")
+    print("Send icon clicked", flush=True)
+    try:
+        wait_text(message)
+        wait_text("Черновик сообщения")
+    except RuntimeError:
+        for node in nodes():
+            text = node.get("text", "")
+            if text.startswith("SEND_") or "не удалось" in text.lower() or "недоступ" in text.lower() or "ключ изменился" in text.lower():
+                print("UI error:", text, flush=True)
+        raise
 
 
 def safety_number():
