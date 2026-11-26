@@ -5,7 +5,9 @@ if [[ $EUID -ne 0 ]]; then
     printf 'Run TLS conversion as root\n' >&2
     exit 1
 fi
-source /etc/secure-messenger/server.env
+source /opt/secure-messenger/deploy/load-env.sh
+load_env /etc/secure-messenger/server.env
+export TLS_KEYSTORE_PASSWORD
 CERT_ROOT="/etc/letsencrypt/live/$PUBLIC_DOMAIN"
 if [[ ! -f "$CERT_ROOT/fullchain.pem" || ! -f "$CERT_ROOT/privkey.pem" ]]; then
     printf 'Certificate or private key is missing for %s\n' "$PUBLIC_DOMAIN" >&2

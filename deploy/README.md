@@ -23,7 +23,9 @@ bash scripts/package-server.sh
 tar -xzf /tmp/secure-messenger-server.tar.gz -C /opt
 ```
 
-На хосте создайте `/etc/secure-messenger/server.env` на основе `/opt/secure-messenger/deploy/server.env.example`. Укажите настоящие `PUBLIC_DOMAIN`, SMTP и новые случайные секреты: `DATABASE_PASSWORD`, `POSTGRES_PASSWORD`, `ADMIN_TOKEN` (минимум 32 символа), `TOKEN_PEPPER_BASE64` (минимум 32 байта в Base64), `TLS_KEYSTORE_PASSWORD` и `TLS_PRIVATE_KEY_PASSWORD`. Не используйте значения `CHANGE_ME` и не отправляйте файл в Git.
+На хосте создайте `/etc/secure-messenger/smtp.env` в редакторе с `PUBLIC_DOMAIN`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, а при необходимости `SMTP_USERNAME` и `SMTP_PASSWORD`. Не используйте значения `CHANGE_ME` и не отправляйте файл в Git.
+
+`/opt/secure-messenger/deploy/create-env.sh` создаст `server.env` с новыми случайными `DATABASE_PASSWORD`, `POSTGRES_PASSWORD`, `ADMIN_TOKEN`, `TOKEN_PEPPER_BASE64` и паролем TLS. Секреты генерируются на хосте и не выводятся в терминал. Парсер конфигурации не выполняет содержимое файла как shell-код. Существующий `server.env` не перезаписывается без явного `REPLACE_PRODUCTION_CONFIG=true`.
 
 Файл должен быть доступен root и группе `messenger`, но не остальным пользователям:
 
@@ -35,6 +37,7 @@ chmod 0640 /etc/secure-messenger/server.env
 Для Let’s Encrypt задайте `LETSENCRYPT_EMAIL` и только после ознакомления с [Subscriber Agreement](https://letsencrypt.org/repository/) установите `LETSENCRYPT_AGREE_TOS=true`. HTTP-01 требует доступность хоста по домену на `80/tcp`.
 
 ```bash
+/opt/secure-messenger/deploy/create-env.sh
 /opt/secure-messenger/deploy/prepare-tls.sh
 /opt/secure-messenger/deploy/install.sh
 curl https://PUBLIC_DOMAIN:8443/v1/health

@@ -5,7 +5,8 @@ if [[ $EUID -ne 0 ]]; then
     printf 'Run TLS preparation as root on the Linux host\n' >&2
     exit 1
 fi
-source /etc/secure-messenger/server.env
+source /opt/secure-messenger/deploy/load-env.sh
+load_env /etc/secure-messenger/server.env
 if [[ ! "${PUBLIC_DOMAIN:-}" =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
     printf 'Set PUBLIC_DOMAIN in server.env\n' >&2
     exit 1

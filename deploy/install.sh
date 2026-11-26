@@ -29,7 +29,8 @@ if [[ ! -f "$CONFIG_ROOT/server.env" || ! -f "$CONFIG_ROOT/tls/server.p12" ]]; t
     printf 'Install server.env and tls/server.p12 under %s before running this installer\n' "$CONFIG_ROOT" >&2
     exit 1
 fi
-source "$CONFIG_ROOT/server.env"
+source "$APP_ROOT/deploy/load-env.sh"
+load_env "$CONFIG_ROOT/server.env"
 for variable in DATABASE_URL DATABASE_USER DATABASE_PASSWORD POSTGRES_PASSWORD ADMIN_TOKEN TOKEN_PEPPER_BASE64 MEDIA_STORAGE_PATH TLS_KEYSTORE_PATH TLS_KEY_ALIAS TLS_KEYSTORE_PASSWORD TLS_PRIVATE_KEY_PASSWORD SMTP_HOST SMTP_PORT SMTP_FROM SMTP_STARTTLS SMTP_SSL; do
     if [[ -z "${!variable:-}" ]]; then
         printf 'Missing required setting: %s\n' "$variable" >&2
