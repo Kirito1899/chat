@@ -2,6 +2,7 @@ package dev.securemessenger.data
 
 import dev.securemessenger.data.e2ee.ChatPayload
 import dev.securemessenger.data.e2ee.DuplicateEnvelopeException
+import dev.securemessenger.data.e2ee.IdentityChangedException
 import dev.securemessenger.data.e2ee.SafetyNumber
 import dev.securemessenger.data.e2ee.SafetyNumberParty
 import dev.securemessenger.data.e2ee.SafetyNumberService
@@ -141,6 +142,43 @@ class MessageRepositoryTest {
         assertFailsWith<IllegalArgumentException> { repository.sync() }
 
         assertTrue(accounts.acknowledged.isEmpty())
+    }
+
+    @Test
+    fun `sync continues after a bad envelope without acknowledging it`() = runTest {
+        val invalid = incomingMessage()
+        val valid = incomingMessage()
+        accounts.incoming = listOf(invalid, valid)
+        cipher.onDecrypt = { message ->
+            if (message.messageId == invalid.messageId) throw IllegalArgumentException("Invalid ciphertext")
+            ChatPayload(ChatPayload.TEXT, message.messageId, "later valid message", 124L)
+        }
+
+        assertFailsWith<IllegalArgumentException> { repository.sync() }
+
+        assertNull(messages.byId(invalid.messageId))
+        assertEquals("later valid message", messages.byId(valid.messageId)?.body)
+        assertEquals(listOf(valid.messageId), accounts.acknowledged)
+    }
+
+    @Test
+    fun `sync prioritizes identity change and still processes later messages`() = runTest {
+        val invalid = incomingMessage()
+        val changed = incomingMessage()
+        val valid = incomingMessage()
+        accounts.incoming = listOf(invalid, changed, valid)
+        cipher.onDecrypt = { message ->
+            when (message.messageId) {
+                invalid.messageId -> throw IllegalArgumentException("Invalid ciphertext")
+                changed.messageId -> throw IdentityChangedException(user.accountId)
+                else -> ChatPayload(ChatPayload.TEXT, message.messageId, "later valid message", 124L)
+            }
+        }
+
+        assertFailsWith<IdentityChangedException> { repository.sync() }
+
+        assertEquals("later valid message", messages.byId(valid.messageId)?.body)
+        assertEquals(listOf(valid.messageId), accounts.acknowledged)
     }
 
     @Test

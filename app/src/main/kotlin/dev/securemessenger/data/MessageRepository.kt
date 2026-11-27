@@ -3,6 +3,7 @@ package dev.securemessenger.data
 import androidx.room.withTransaction
 import dev.securemessenger.data.e2ee.ChatPayload
 import dev.securemessenger.data.e2ee.DuplicateEnvelopeException
+import dev.securemessenger.data.e2ee.IdentityChangedException
 import dev.securemessenger.data.e2ee.E2eeManager
 import dev.securemessenger.data.e2ee.MediaDescriptor
 import dev.securemessenger.data.e2ee.SafetyNumber
@@ -25,6 +26,7 @@ import dev.securemessenger.shared.MessageListResponse
 import dev.securemessenger.shared.SendGroupMessageRequest
 import dev.securemessenger.shared.SendMessageRequest
 import dev.securemessenger.shared.UserResponse
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.sync.Mutex
@@ -271,6 +273,7 @@ class MessageRepository internal constructor(
         e2ee.initializeDevice()
         flushOutbox()
         var newMessages = 0
+        var failure: Exception? = null
         val incoming = accounts.fetchMessages().messages
         incoming.forEach { message ->
             try {
@@ -280,12 +283,19 @@ class MessageRepository internal constructor(
                 if (displayable) newMessages++
             } catch (_: DuplicateEnvelopeException) {
                 accounts.markDelivered(message.messageId)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: IdentityChangedException) {
+                if (failure !is IdentityChangedException) failure = error
+            } catch (error: Exception) {
+                if (failure == null) failure = error
             }
         }
         accounts.fetchDelivered().messageIds.forEach {
             messages.markDelivered(it)
             groupReceipts?.markDelivered(it)
         }
+        failure?.let { throw it }
         newMessages
     }
 

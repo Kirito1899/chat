@@ -8,7 +8,7 @@
 - Личные текстовые сообщения через официальный `libsignal-client` 0.86.5 из Maven Central: PQXDH и Double Ratchet, подписанные EC/Kyber prekeys и last-resort Kyber key. При остатке менее 20 EC prekeys загружаются новые EC/Kyber keys с проверкой собственной identity и подписей; identity не меняется.
 - Сервер хранит только публичные ключи и недоставленные ciphertext envelopes с TTL. Одноразовые prekeys выдаются атомарно; повторная отправка с тем же message ID не создаёт дубликат.
 - Android хранит identity, prekeys, Signal sessions, сообщения, outbox и черновики в SQLCipher. Ключи расшифровки защищены Android Keystore.
-- Offline outbox, подтверждение доставки после durable local save, статусы `PENDING`/`SENT`/`DELIVERED`/`READ`.
+- Offline outbox, подтверждение доставки после durable local save, статусы `PENDING`/`SENT`/`DELIVERED`/`READ`. Ошибка расшифровки одного envelope не даёт ему acknowledgement и не блокирует обработку остальной очереди; смена identity сохраняет приоритет над обычной ошибкой синхронизации.
 - Safety number из 60 цифр и QR. Смена identity блокирует отправку; пользователь видит fingerprint нового bundle и принимает именно просмотренный bundle после проверки подписей.
 - Восстановление сессии, черновиков и выбранного чата/группы после пересоздания Activity и process death. Навигация хранится в SQLCipher, автопрокрутка к последнему сообщению, адаптивные layouts и Flex Mode.
 - HTTPS с проверкой CA/hostname. Dev APK использует локальный dev CA; cleartext отключён.
@@ -22,7 +22,7 @@
 - Собственный fallback через `JobScheduler` каждые 15 минут при наличии сети, включая восстановление после выгрузки процесса. Уведомления обобщённые и не содержат plaintext; разрешение запрашивается после входа. Android `force-stop` и OEM-ограничения могут отменить фоновую работу до следующего ручного запуска.
 - Опциональный `API_FALLBACK_URL` для REST и WSS. Переключение выполняется по фактически отказавшему endpoint даже при параллельных запросах; latency успешного переключения измеряется. Timeout, HTTP-ошибка и TLS-ошибка не приводят к слепому повтору запроса на другом endpoint.
 
-FCM как дополнительный канал и production deployment относятся к следующим этапам и пока не заявляются как готовые. FCM не имитируется без реальных Firebase-настроек.
+FCM не подключён и не имитируется без реальных Firebase-настроек: используются WSS и собственный fallback. Production-развёртывание на Linux с реальным SMTP, TLS, systemd и PostgreSQL выполняется по `deploy/README.md`; перед выпуском также обязательны release E2EE и проверка восстановления резервной копии.
 
 ## Требования
 
@@ -90,7 +90,7 @@ PostgreSQL integration tests используют Zonky с настоящими 
 API_BASE_URL=https://chat.example.org/ bash scripts/build-release.sh
 ```
 
-Скрипт собирает minified release APK и `server/build/install/server`, затем проверяет подпись через `apksigner.jar`. При первом запуске создаётся RSA-3072 keystore в `.local/release/securemessenger-release.p12`; параметры доступа сохраняются только в `.local/release-signing.sh`. Секреты не коммитятся. Сделайте зашифрованную резервную копию обоих путей: потеря ключа не позволит выпускать обновления, а его утечка позволит подписывать чужие APK от имени проекта. `API_FALLBACK_URL` необязателен, но тоже должен использовать HTTPS.
+Скрипт собирает minified release APK и `server/build/install/server`, затем проверяет подпись через `apksigner.jar`. libsignal поставляет [JNI-правила для shrinker](https://github.com/signalapp/libsignal/blob/v0.86.5/java/shared/resources/META-INF/proguard/libsignal.pro), а `app/proguard-rules.pro` дополнительно сохраняет конкретные реализации `SignalProtocolStore` и типы в сигнатурах их методов: native-код обращается к ним по исходным JNI-именам. При первом запуске создаётся RSA-3072 keystore в `.local/release/securemessenger-release.p12`; параметры доступа сохраняются только в `.local/release-signing.sh`. Секреты не коммитятся. Сделайте зашифрованную резервную копию обоих путей: потеря ключа не позволит выпускать обновления, а его утечка позволит подписывать чужие APK от имени проекта. `API_FALLBACK_URL` необязателен, но тоже должен использовать HTTPS.
 
 Для локальной проверки подписи и запуска без production endpoint используется `ALLOW_LOCAL_RELEASE=true CLIENT_SUFFIX=.release bash scripts/build-release.sh`. Отдельный application ID не заменяет debug-данные. Такая сборка не является production configuration: release доверяет системным CA, а не локальному dev CA, и должен использовать публичный HTTPS endpoint.
 
