@@ -13,6 +13,7 @@ import dev.securemessenger.data.e2ee.SignalSchema
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
+import java.util.UUID
 
 @Entity(tableName = "drafts")
 data class DraftEntity(
@@ -62,6 +63,9 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE chatId = :chatId AND outgoing = 0 AND status = 'DELIVERED'")
     suspend fun unreadIncoming(chatId: String): List<MessageEntity>
 
+    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY createdAt DESC, messageId DESC LIMIT 1")
+    suspend fun latestInChat(chatId: String): MessageEntity?
+
     @Query("UPDATE messages SET status = 'DELIVERED' WHERE messageId = :messageId AND status != 'READ'")
     suspend fun markDelivered(messageId: String)
 
@@ -70,6 +74,51 @@ interface MessageDao {
 
     @Query("UPDATE messages SET status = :status WHERE messageId = :messageId")
     suspend fun updateStatus(messageId: String, status: String)
+}
+
+@Entity(tableName = "direct_conversations", primaryKeys = ["ownerAccountId", "accountId"], indices = [Index("ownerAccountId")])
+data class DirectConversationEntity(
+    val ownerAccountId: String,
+    val accountId: String,
+    val username: String,
+    val notificationKey: String = UUID.randomUUID().toString(),
+    val lastBody: String = "",
+    val lastCreatedAt: Long = 0,
+    val lastOutgoing: Boolean = false,
+    val unreadCount: Int = 0,
+)
+
+@Dao
+interface DirectConversationDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun create(item: DirectConversationEntity): Long
+
+    @Query("""
+        UPDATE direct_conversations
+        SET lastBody = :body, lastCreatedAt = :createdAt, lastOutgoing = :outgoing,
+            unreadCount = unreadCount + :unreadIncrement
+        WHERE ownerAccountId = :ownerAccountId AND accountId = :accountId
+    """)
+    suspend fun updateLastMessage(
+        ownerAccountId: String,
+        accountId: String,
+        body: String,
+        createdAt: Long,
+        outgoing: Boolean,
+        unreadIncrement: Int,
+    )
+
+    @Query("UPDATE direct_conversations SET unreadCount = :count WHERE ownerAccountId = :ownerAccountId AND accountId = :accountId")
+    suspend fun setUnreadCount(ownerAccountId: String, accountId: String, count: Int)
+
+    @Query("SELECT * FROM direct_conversations WHERE ownerAccountId = :ownerAccountId ORDER BY lastCreatedAt DESC, accountId")
+    fun observe(ownerAccountId: String): Flow<List<DirectConversationEntity>>
+
+    @Query("SELECT * FROM direct_conversations WHERE ownerAccountId = :ownerAccountId AND notificationKey = :notificationKey")
+    suspend fun byNotificationKey(ownerAccountId: String, notificationKey: String): DirectConversationEntity?
+
+    @Query("SELECT * FROM direct_conversations WHERE ownerAccountId = :ownerAccountId AND unreadCount > 0 ORDER BY lastCreatedAt DESC LIMIT 1")
+    suspend fun latestUnread(ownerAccountId: String): DirectConversationEntity?
 }
 
 @Entity(tableName = "outbox")
@@ -181,8 +230,8 @@ interface MediaUploadDao {
 }
 
 @Database(
-    entities = [DraftEntity::class, MessageEntity::class, OutboxEntity::class, GroupInfoEntity::class, GroupReceiptEntity::class, MediaUploadEntity::class],
-    version = 5,
+    entities = [DraftEntity::class, MessageEntity::class, OutboxEntity::class, GroupInfoEntity::class, GroupReceiptEntity::class, MediaUploadEntity::class, DirectConversationEntity::class],
+    version = 6,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -192,6 +241,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun groupInfo(): GroupInfoDao
     abstract fun groupReceipts(): GroupReceiptDao
     abstract fun mediaUploads(): MediaUploadDao
+    abstract fun directConversations(): DirectConversationDao
 }
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -226,6 +276,26 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
         db.execSQL("ALTER TABLE media_uploads ADD COLUMN caption TEXT")
         db.execSQL("ALTER TABLE media_uploads ADD COLUMN dispatched INTEGER NOT NULL DEFAULT 0")
         db.execSQL("ALTER TABLE media_uploads ADD COLUMN messageId TEXT")
+        SignalSchema.create(db)
+    }
+}
+
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS direct_conversations(
+                ownerAccountId TEXT NOT NULL,
+                accountId TEXT NOT NULL,
+                username TEXT NOT NULL,
+                notificationKey TEXT NOT NULL,
+                lastBody TEXT NOT NULL,
+                lastCreatedAt INTEGER NOT NULL,
+                lastOutgoing INTEGER NOT NULL,
+                unreadCount INTEGER NOT NULL,
+                PRIMARY KEY(ownerAccountId, accountId)
+            )
+        """.trimIndent())
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_direct_conversations_ownerAccountId ON direct_conversations(ownerAccountId)")
         SignalSchema.create(db)
     }
 }

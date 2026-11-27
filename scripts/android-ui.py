@@ -152,7 +152,16 @@ def hide_keyboard():
 def start(package):
     adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
     adb("shell", "wm", "dismiss-keyguard")
+    adb("shell", "cmd", "statusbar", "collapse")
     adb("shell", "am", "start", "-n", f"{package}/dev.securemessenger.MainActivity")
+
+
+def wait_package(package, timeout=30):
+    deadline = time.monotonic() + timeout
+    while not any(node.get("package") == package for node in nodes()):
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"Timed out waiting for application: {package}")
+        time.sleep(0.5)
 
 
 def login(package, email, username, password):
@@ -187,11 +196,7 @@ def login(package, email, username, password):
 
 def open_chat(package, peer):
     start(package)
-    deadline = time.monotonic() + 30
-    while not any(node.get("package") == package for node in nodes()):
-        if time.monotonic() >= deadline:
-            raise RuntimeError(f"Timed out waiting for application: {package}")
-        time.sleep(0.5)
+    wait_package(package)
     if find("Назад") is not None and find("Чаты") is None:
         tap("Назад")
     wait_text("Чаты")
@@ -234,6 +239,55 @@ def safety_number():
     wait_composer()
 
 
+def open_notification(package, peer, message):
+    deadline = time.monotonic() + 45
+    while time.monotonic() < deadline:
+        dump = adb("shell", "dumpsys", "notification")
+        if f"pkg={package}" in dump and "id=7002" in dump and "channel=protected_messages" in dump:
+            break
+        time.sleep(0.5)
+    else:
+        raise RuntimeError(f"Message notification not found for: {package}")
+    if message in dump or peer in dump:
+        raise RuntimeError("Notification contains message text or sender")
+    adb("shell", "cmd", "statusbar", "expand-notifications")
+    wait_text("Новые зашифрованные сообщения", last=True)
+    tap("Новые зашифрованные сообщения", last=True)
+    expanded = False
+    try:
+        wait_text("Скрыть", timeout=2, desc=True)
+        expanded = True
+    except RuntimeError:
+        pass
+    if expanded:
+        tap("Новые зашифрованные сообщения", last=True)
+    wait_package(package)
+    wait_composer()
+    wait_text(message)
+
+
+def show_chat_list(package):
+    start(package)
+    wait_package(package)
+    if find("Назад") is not None and find("Чаты") is None:
+        tap("Назад")
+    wait_text("Чаты")
+
+
+def show_conversation(package, peer, message, unread):
+    show_chat_list(package)
+    wait_text(f"@{peer}", last=True)
+    wait_text(message)
+    wait_text(str(unread))
+
+
+def open_conversation(package, peer, message, unread):
+    show_conversation(package, peer, message, unread)
+    tap(f"@{peer}", last=True)
+    wait_composer()
+    wait_text(message)
+
+
 def main():
     command = sys.argv[1]
     if command == "login":
@@ -250,6 +304,14 @@ def main():
         start(sys.argv[2])
     elif command == "stop":
         adb("shell", "am", "force-stop", sys.argv[2])
+    elif command == "notification":
+        open_notification(sys.argv[2], sys.argv[3], sys.argv[4])
+    elif command == "list":
+        show_chat_list(sys.argv[2])
+    elif command == "show_conversation":
+        show_conversation(sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]))
+    elif command == "open_conversation":
+        open_conversation(sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]))
     else:
         raise RuntimeError(f"Unknown command: {command}")
 

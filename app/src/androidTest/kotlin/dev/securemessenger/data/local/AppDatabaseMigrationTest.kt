@@ -21,6 +21,27 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
+    fun direct_conversations_migration_preserves_existing_drafts() {
+        val name = "migration-conversations-${UUID.randomUUID()}"
+        helper.createDatabase(name, 5).use { database ->
+            database.execSQL("INSERT INTO drafts(chatId, body, updatedAt) VALUES ('direct:peer', 'saved draft', 123)")
+        }
+
+        helper.runMigrationsAndValidate(name, 6, false, MIGRATION_5_6).use { database ->
+            database.query("SELECT body FROM drafts WHERE chatId = 'direct:peer'").use { cursor ->
+                check(cursor.moveToFirst())
+                check(cursor.getString(0) == "saved draft")
+            }
+            database.query("PRAGMA table_info(direct_conversations)").use { cursor ->
+                val columns = buildList { while (cursor.moveToNext()) add(cursor.getString(1)) }
+                check("ownerAccountId" in columns)
+                check("notificationKey" in columns)
+                check("unreadCount" in columns)
+            }
+        }
+    }
+
+    @Test
     fun version_two_outbox_survives_migration_to_groups_and_media() {
         val name = "migration-${UUID.randomUUID()}"
         val messageId = UUID.randomUUID().toString()

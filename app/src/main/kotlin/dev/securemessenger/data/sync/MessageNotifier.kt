@@ -42,7 +42,7 @@ object MessageNotifier {
             .build()
     }
 
-    fun showMessages(context: Context, count: Int) {
+    fun showMessages(context: Context, count: Int, notificationKey: String? = null) {
         if (AppVisibility.foreground || count <= 0) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -53,7 +53,10 @@ object MessageNotifier {
         val open = PendingIntent.getActivity(
             context,
             0,
-            Intent(context, MainActivity::class.java),
+            Intent(context, MainActivity::class.java).apply {
+                action = MainActivity.ACTION_OPEN_CONVERSATION
+                if (notificationKey != null) putExtra(MainActivity.EXTRA_NOTIFICATION_KEY, notificationKey)
+            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(context, MESSAGE_CHANNEL)

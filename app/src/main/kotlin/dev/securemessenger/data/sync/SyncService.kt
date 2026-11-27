@@ -81,7 +81,8 @@ class SyncService : Service() {
     private fun onServerEvent() {
         scope.launch {
             try {
-                MessageNotifier.showMessages(this@SyncService, messages.sync())
+                val newMessages = messages.sync()
+                MessageNotifier.showMessages(this@SyncService, newMessages, messages.latestUnreadNotificationKey())
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {

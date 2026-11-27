@@ -78,6 +78,7 @@ data class IncomingMessage(
     val createdAt: Long,
     val groupId: String? = null,
     val groupMessageId: String? = null,
+    val senderUsername: String? = null,
 )
 
 @Serializable

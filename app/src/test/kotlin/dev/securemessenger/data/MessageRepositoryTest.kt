@@ -7,6 +7,8 @@ import dev.securemessenger.data.e2ee.SafetyNumber
 import dev.securemessenger.data.e2ee.SafetyNumberParty
 import dev.securemessenger.data.e2ee.SafetyNumberService
 import dev.securemessenger.data.e2ee.MediaDescriptor
+import dev.securemessenger.data.local.DirectConversationDao
+import dev.securemessenger.data.local.DirectConversationEntity
 import dev.securemessenger.data.local.GroupInfoDao
 import dev.securemessenger.data.local.GroupInfoEntity
 import dev.securemessenger.data.local.GroupReceiptDao
@@ -193,6 +195,55 @@ class MessageRepositoryTest {
         assertEquals(0, repository.sync())
 
         assertEquals(listOf(incoming.messageId), accounts.acknowledged)
+    }
+
+    @Test
+    fun `first incoming message creates one unread conversation with notification deep link`() = runTest {
+        val owner = UUID.randomUUID().toString()
+        val conversations = FakeDirectConversationDao()
+        accounts.localAccountId = owner
+        repository = MessageRepository(messages, outboxes, cipher, accounts, json, directConversations = conversations) { block -> block() }
+        val incoming = incomingMessage().copy(senderUsername = user.username)
+        accounts.incoming = listOf(incoming)
+        cipher.onDecrypt = { ChatPayload(ChatPayload.TEXT, incoming.messageId, "first incoming", 123L) }
+
+        repository.sync()
+
+        val conversation = conversations.items.values.single()
+        assertEquals(owner, conversation.ownerAccountId)
+        assertEquals(user.accountId, conversation.accountId)
+        assertEquals("first incoming", conversation.lastBody)
+        assertEquals(123L, conversation.lastCreatedAt)
+        assertEquals(1, conversation.unreadCount)
+        assertEquals(user, repository.directConversationByNotificationKey(owner, conversation.notificationKey))
+        assertEquals(conversation.notificationKey, repository.latestUnreadNotificationKey())
+
+        cipher.onDecrypt = { throw DuplicateEnvelopeException() }
+        repository.sync()
+        assertEquals(1, conversations.items.values.single().unreadCount)
+
+        repository.markChatRead(user)
+        assertEquals(0, conversations.items.values.single().unreadCount)
+        assertNull(repository.latestUnreadNotificationKey())
+    }
+
+    @Test
+    fun `direct conversation summaries are isolated by local account`() = runTest {
+        val firstOwner = UUID.randomUUID().toString()
+        val secondOwner = UUID.randomUUID().toString()
+        val conversations = FakeDirectConversationDao()
+        accounts.localAccountId = firstOwner
+        repository = MessageRepository(messages, outboxes, cipher, accounts, json, directConversations = conversations) { block -> block() }
+        messages.put(MessageEntity("existing", "direct:${user.accountId}", "saved locally", false, 123L, "DELIVERED"))
+
+        repository.openDirectConversation(user)
+        accounts.localAccountId = secondOwner
+        repository.openDirectConversation(user)
+
+        assertEquals(listOf(firstOwner), repository.observeDirectConversations(firstOwner).first().map { it.ownerAccountId })
+        assertEquals(listOf(secondOwner), repository.observeDirectConversations(secondOwner).first().map { it.ownerAccountId })
+        assertEquals("saved locally", repository.observeDirectConversations(firstOwner).first().single().lastBody)
+        assertEquals(1, repository.observeDirectConversations(firstOwner).first().single().unreadCount)
     }
 
     @Test
@@ -545,6 +596,51 @@ private class FakeMessageAccounts(
     override suspend fun fetchGroup(groupId: String): GroupResponse = requireNotNull(group)
 }
 
+private class FakeDirectConversationDao : DirectConversationDao {
+    val items = linkedMapOf<String, DirectConversationEntity>()
+
+    override suspend fun create(item: DirectConversationEntity): Long {
+        val key = "${item.ownerAccountId}:${item.accountId}"
+        if (items.containsKey(key)) return -1L
+        items[key] = item
+        return 1L
+    }
+
+    override suspend fun updateLastMessage(
+        ownerAccountId: String,
+        accountId: String,
+        body: String,
+        createdAt: Long,
+        outgoing: Boolean,
+        unreadIncrement: Int,
+    ) {
+        val key = "$ownerAccountId:$accountId"
+        val current = items[key] ?: return
+        items[key] = current.copy(
+            lastBody = body,
+            lastCreatedAt = createdAt,
+            lastOutgoing = outgoing,
+            unreadCount = current.unreadCount + unreadIncrement,
+        )
+    }
+
+    override suspend fun setUnreadCount(ownerAccountId: String, accountId: String, count: Int) {
+        val key = "$ownerAccountId:$accountId"
+        items[key]?.let { items[key] = it.copy(unreadCount = count) }
+    }
+
+    override fun observe(ownerAccountId: String): Flow<List<DirectConversationEntity>> = flowOf(
+        items.values.filter { it.ownerAccountId == ownerAccountId }
+            .sortedWith(compareByDescending<DirectConversationEntity> { it.lastCreatedAt }.thenBy { it.accountId }),
+    )
+
+    override suspend fun byNotificationKey(ownerAccountId: String, notificationKey: String): DirectConversationEntity? =
+        items.values.firstOrNull { it.ownerAccountId == ownerAccountId && it.notificationKey == notificationKey }
+
+    override suspend fun latestUnread(ownerAccountId: String): DirectConversationEntity? =
+        items.values.filter { it.ownerAccountId == ownerAccountId && it.unreadCount > 0 }.maxByOrNull { it.lastCreatedAt }
+}
+
 private class FakeMessageDao(
     private val events: MutableList<String>,
 ) : MessageDao {
@@ -576,6 +672,9 @@ private class FakeMessageDao(
 
     override suspend fun unreadIncoming(chatId: String): List<MessageEntity> =
         items.values.filter { it.chatId == chatId && !it.outgoing && it.status == "DELIVERED" }
+
+    override suspend fun latestInChat(chatId: String): MessageEntity? =
+        items.values.filter { it.chatId == chatId }.maxWithOrNull(compareBy(MessageEntity::createdAt, MessageEntity::messageId))
 
     override suspend fun markDelivered(messageId: String) {
         items[messageId]?.let { message ->

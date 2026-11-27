@@ -8,6 +8,8 @@ import dev.securemessenger.data.e2ee.E2eeManager
 import dev.securemessenger.data.e2ee.MediaDescriptor
 import dev.securemessenger.data.e2ee.SafetyNumber
 import dev.securemessenger.data.local.AppDatabase
+import dev.securemessenger.data.local.DirectConversationDao
+import dev.securemessenger.data.local.DirectConversationEntity
 import dev.securemessenger.data.local.GroupInfoDao
 import dev.securemessenger.data.local.GroupInfoEntity
 import dev.securemessenger.data.local.GroupReceiptDao
@@ -29,6 +31,7 @@ import dev.securemessenger.shared.UserResponse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
@@ -72,6 +75,7 @@ class MessageRepository internal constructor(
     private val groupInfo: GroupInfoDao? = null,
     private val groupReceipts: GroupReceiptDao? = null,
     private val mediaUploads: MediaUploadDao? = null,
+    private val directConversations: DirectConversationDao? = null,
     private val transact: MessageTransaction,
 ) {
     private val syncMutex = Mutex()
@@ -113,10 +117,40 @@ class MessageRepository internal constructor(
         groupInfo = database.groupInfo(),
         groupReceipts = database.groupReceipts(),
         mediaUploads = database.mediaUploads(),
+        directConversations = database.directConversations(),
     )
 
     fun observeMessages(accountId: String): Flow<List<MessageEntity>> =
         messages.observeChat("direct:$accountId")
+
+    fun observeDirectConversations(ownerAccountId: String): Flow<List<DirectConversationEntity>> =
+        directConversations?.observe(ownerAccountId) ?: flowOf(emptyList())
+
+    suspend fun openDirectConversation(user: UserResponse) {
+        val conversations = directConversations ?: return
+        val ownerAccountId = accounts.currentAccountId() ?: return
+        val latest = messages.latestInChat("direct:${user.accountId}")
+        val unread = messages.unreadIncoming("direct:${user.accountId}").size
+        conversations.create(
+            DirectConversationEntity(
+                ownerAccountId = ownerAccountId,
+                accountId = user.accountId,
+                username = user.username,
+                lastBody = latest?.body.orEmpty(),
+                lastCreatedAt = latest?.createdAt ?: 0,
+                lastOutgoing = latest?.outgoing ?: false,
+                unreadCount = unread,
+            ),
+        )
+    }
+
+    suspend fun directConversationByNotificationKey(ownerAccountId: String, notificationKey: String): UserResponse? =
+        directConversations?.byNotificationKey(ownerAccountId, notificationKey)?.let { UserResponse(it.accountId, it.username) }
+
+    suspend fun latestUnreadNotificationKey(): String? {
+        val ownerAccountId = accounts.currentAccountId() ?: return null
+        return directConversations?.latestUnread(ownerAccountId)?.notificationKey
+    }
 
     fun observeGroupMessages(groupId: String): Flow<List<MessageEntity>> {
         val receipts = requireNotNull(groupReceipts).observeAll()
@@ -146,11 +180,11 @@ class MessageRepository internal constructor(
         val messageId = UUID.randomUUID().toString()
         val request = e2ee.encryptText(user, messageId, body)
         val outbox = OutboxEntity(messageId, json.encodeToString(SendMessageRequest.serializer(), request), System.currentTimeMillis())
+        val entity = MessageEntity(messageId, "direct:${user.accountId}", body, true, System.currentTimeMillis(), "PENDING")
         transact.run {
-            messages.insert(
-                MessageEntity(messageId, "direct:${user.accountId}", body, true, System.currentTimeMillis(), "PENDING"),
-            )
+            messages.insert(entity)
             outboxes.put(outbox)
+            recordDirectMessage(user, entity.body, entity.createdAt, outgoing = true)
         }
         try {
             sendRequest(outbox)
@@ -182,8 +216,10 @@ class MessageRepository internal constructor(
                 dispatchNew = false
                 return@run
             }
-            messages.insert(messageEntity(payload, outgoing = true, chatId = "direct:${user.accountId}"))
+            val entity = messageEntity(payload, outgoing = true, chatId = "direct:${user.accountId}")
+            messages.insert(entity)
             outboxes.put(outbox)
+            recordDirectMessage(user, entity.body, entity.createdAt, outgoing = true)
         }
         if (dispatchNew) {
             try {
@@ -307,6 +343,15 @@ class MessageRepository internal constructor(
             messages.updateStatus(message.messageId, "READ")
         }
         flushOutbox()
+        directConversations?.let { conversations ->
+            accounts.currentAccountId()?.let { ownerAccountId ->
+                conversations.setUnreadCount(
+                    ownerAccountId,
+                    user.accountId,
+                    messages.unreadIncoming("direct:${user.accountId}").size,
+                )
+            }
+        }
     }
 
     suspend fun markGroupRead(group: GroupResponse) = syncMutex.withLock {
@@ -361,11 +406,22 @@ class MessageRepository internal constructor(
     }
 
     private suspend fun insertPayload(envelope: IncomingMessage, payload: ChatPayload, chatId: String): Boolean {
-        val inserted = messages.insert(messageEntity(payload, outgoing = false, chatId = chatId, senderAccountId = envelope.senderAccountId))
-        if (inserted == -1L && messages.byIdInChat(payload.messageId, chatId) == null) {
-            throw IllegalStateException("Incoming message was not persisted")
+        var inserted = false
+        transact.run {
+            val entity = messageEntity(payload, outgoing = false, chatId = chatId, senderAccountId = envelope.senderAccountId)
+            inserted = messages.insert(entity) != -1L
+            if (!inserted && messages.byIdInChat(payload.messageId, chatId) == null) {
+                throw IllegalStateException("Incoming message was not persisted")
+            }
+            if (inserted && envelope.groupId == null && directConversations != null) {
+                val sender = UserResponse(
+                    envelope.senderAccountId,
+                    requireNotNull(envelope.senderUsername) { "Missing sender username" },
+                )
+                recordDirectMessage(sender, entity.body, entity.createdAt, outgoing = false)
+            }
         }
-        return inserted != -1L
+        return inserted
     }
 
     private fun messageEntity(payload: ChatPayload, outgoing: Boolean, chatId: String, senderAccountId: String? = null) = MessageEntity(
@@ -378,6 +434,20 @@ class MessageRepository internal constructor(
         mediaJson = payload.media?.let { json.encodeToString(MediaDescriptor.serializer(), it) },
         senderAccountId = senderAccountId,
     )
+
+    private suspend fun recordDirectMessage(user: UserResponse, body: String, createdAt: Long, outgoing: Boolean) {
+        val conversations = directConversations ?: return
+        val ownerAccountId = accounts.currentAccountId() ?: return
+        conversations.create(DirectConversationEntity(ownerAccountId, user.accountId, user.username))
+        conversations.updateLastMessage(
+            ownerAccountId = ownerAccountId,
+            accountId = user.accountId,
+            body = body,
+            createdAt = createdAt,
+            outgoing = outgoing,
+            unreadIncrement = if (outgoing) 0 else 1,
+        )
+    }
 
     private suspend fun flushOutbox() {
         outboxes.all().forEach { outbox ->

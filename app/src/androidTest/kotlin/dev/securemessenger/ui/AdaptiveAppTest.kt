@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import dev.securemessenger.data.local.DirectConversationEntity
 import dev.securemessenger.data.local.MessageEntity
 import dev.securemessenger.shared.TokenResponse
 import dev.securemessenger.shared.UserResponse
@@ -131,6 +132,44 @@ class AdaptiveAppTest {
         showChat(draft = " \n\t ")
 
         compose.onNodeWithTag("send_button").assertIsNotEnabled()
+    }
+
+    @Test
+    fun first_incoming_conversation_shows_preview_time_and_unread_count_and_opens() {
+        val conversation = DirectConversationEntity(
+            ownerAccountId = session.accountId,
+            accountId = chat.accountId,
+            username = chat.username,
+            lastBody = "Первое входящее",
+            lastCreatedAt = System.currentTimeMillis(),
+            unreadCount = 2,
+        )
+        var selected: UserResponse? = null
+        compose.setContent {
+            HomeLayout(
+                isWide = false,
+                fold = FoldState(),
+                session = session,
+                searchResult = null,
+                selectedChat = null,
+                draft = "",
+                busy = false,
+                error = null,
+                onSearch = {},
+                onSelect = { selected = it },
+                onCloseChat = {},
+                onDraftChange = {},
+                onLogout = {},
+                conversations = listOf(conversation),
+            )
+        }
+
+        compose.onNodeWithText("@${chat.username}").assertIsDisplayed()
+        compose.onNodeWithText("Первое входящее").assertIsDisplayed()
+        compose.onNodeWithText("2").assertIsDisplayed()
+        compose.onNodeWithTag("conversation_${chat.accountId}").performClick()
+
+        assertEquals(chat, selected)
     }
 
     @Test

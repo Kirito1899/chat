@@ -9,6 +9,7 @@ import dev.securemessenger.data.AccountRepository
 import dev.securemessenger.data.MessageRepository
 import dev.securemessenger.data.e2ee.IdentityChangedException
 import dev.securemessenger.data.e2ee.SafetyNumber
+import dev.securemessenger.data.local.DirectConversationEntity
 import dev.securemessenger.data.local.DraftStore
 import dev.securemessenger.data.local.MessageEntity
 import dev.securemessenger.data.media.MediaInput
@@ -16,6 +17,7 @@ import dev.securemessenger.data.media.MediaKind
 import dev.securemessenger.data.media.MediaMessagePreparer
 import dev.securemessenger.data.media.MediaService
 import dev.securemessenger.data.media.VoiceRecordingRepository
+import dev.securemessenger.data.sync.AppVisibility
 import dev.securemessenger.data.remote.ApiException
 import dev.securemessenger.shared.UserResponse
 import dev.securemessenger.shared.ValidationException
@@ -33,6 +35,7 @@ data class ChatsUiState(
     val selectedChat: UserResponse? = null,
     val searchResult: UserResponse? = null,
     val messages: List<MessageEntity> = emptyList(),
+    val conversations: List<DirectConversationEntity> = emptyList(),
     val draft: String = "",
     val safetyNumber: SafetyNumber? = null,
     val busy: Boolean = false,
@@ -57,6 +60,8 @@ class ChatsViewModel @Inject constructor(
     private var draftRevision = 0L
     private var messagesJob: Job? = null
     private var syncJob: Job? = null
+    private var conversationsJob: Job? = null
+    private var currentAccountId: String? = null
     private var restoreSelection = true
 
     init {
@@ -102,7 +107,10 @@ class ChatsViewModel @Inject constructor(
         val revision = ++draftRevision
         savedState[CHAT_ID] = user.accountId
         savedState[CHAT_USERNAME] = user.username
-        viewModelScope.launch { drafts.saveSelectedDirect(user) }
+        viewModelScope.launch {
+            drafts.saveSelectedDirect(user)
+            messages.openDirectConversation(user)
+        }
         messagesJob?.cancel()
         syncJob?.cancel()
         mutableState.value = mutableState.value.copy(selectedChat = user, messages = emptyList(), draft = "", error = null)
@@ -121,7 +129,7 @@ class ChatsViewModel @Inject constructor(
             while (true) {
                 try {
                     messages.sync()
-                    if (mutableState.value.selectedChat == user) messages.markChatRead(user)
+                    if (AppVisibility.foreground && mutableState.value.selectedChat == user) messages.markChatRead(user)
                     mutableState.value = mutableState.value.copy(error = null)
                 } catch (error: CancellationException) {
                     throw error
@@ -283,7 +291,31 @@ class ChatsViewModel @Inject constructor(
         }
     }
 
+    fun setAccount(accountId: String?) {
+        if (currentAccountId == accountId) return
+        currentAccountId = accountId
+        conversationsJob?.cancel()
+        mutableState.value = mutableState.value.copy(conversations = emptyList())
+        if (accountId != null) {
+            conversationsJob = viewModelScope.launch {
+                messages.observeDirectConversations(accountId).collect {
+                    mutableState.value = mutableState.value.copy(conversations = it)
+                }
+            }
+        }
+    }
+
+    fun openNotification(notificationKey: String) {
+        viewModelScope.launch {
+            val ownerAccountId = currentAccountId ?: accounts.restore()?.accountId ?: return@launch
+            val user = messages.directConversationByNotificationKey(ownerAccountId, notificationKey) ?: return@launch
+            selectChat(user)
+        }
+    }
+
     fun reset() {
+        conversationsJob?.cancel()
+        currentAccountId = null
         voiceRecording.cancel()
         closeChat()
         mutableState.value = ChatsUiState()

@@ -53,21 +53,23 @@ python scripts/android-ui.py login "$A_PACKAGE" "$EMAIL_A" "$USER_A" "$PASSWORD"
 python scripts/android-ui.py login "$B_PACKAGE" "$EMAIL_B" "$USER_B" "$PASSWORD"
 python scripts/android-ui.py open_chat "$A_PACKAGE" "$USER_B"
 python scripts/android-ui.py send "Prod A $RUN_ID"
-python scripts/android-ui.py open_chat "$B_PACKAGE" "$USER_A"
-python scripts/android-ui.py expect "Prod A $RUN_ID"
+python scripts/android-ui.py notification "$B_PACKAGE" "$USER_A" "Prod A $RUN_ID"
 python scripts/android-ui.py send "Prod B $RUN_ID"
 python scripts/android-ui.py open_chat "$A_PACKAGE" "$USER_B"
 python scripts/android-ui.py expect "Prod B $RUN_ID"
 python scripts/android-ui.py safety
 
 OFFLINE="Offline $RUN_ID"
+python scripts/android-ui.py list "$B_PACKAGE"
 python scripts/android-ui.py stop "$B_PACKAGE"
 python scripts/android-ui.py open_chat "$A_PACKAGE" "$USER_B"
 python scripts/android-ui.py send "$OFFLINE"
 printf -v EXPECTED '%q' "$OFFLINE"
 run_remote "EXPECTED_TEXT=$EXPECTED /opt/secure-messenger/deploy/verify-ciphertext.sh"
 python scripts/android-ui.py login "$B_PACKAGE" "$EMAIL_B" "$USER_B" "$PASSWORD"
-python scripts/android-ui.py open_chat "$B_PACKAGE" "$USER_A"
+python scripts/android-ui.py show_conversation "$B_PACKAGE" "$USER_A" "$OFFLINE" 1
+python scripts/android-ui.py stop "$B_PACKAGE"
+python scripts/android-ui.py open_conversation "$B_PACKAGE" "$USER_A" "$OFFLINE" 1
 python scripts/android-ui.py expect "$OFFLINE"
 
 crash_output=$("$ADB" shell "logcat -d -v brief -T '$LOGCAT_START' AndroidRuntime:E DEBUG:E '*:S'")

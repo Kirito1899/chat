@@ -306,10 +306,12 @@ class JdbcE2eeRepository(private val dataSource: DataSource) : E2eeRepository {
     override fun fetchUndelivered(deviceId: UUID): List<IncomingMessage> = dataSource.connection.use { connection ->
         connection.queryAll(
             """
-            SELECT message_id, sender_account_id, sender_device_id, ciphertext_type, ciphertext, created_at, group_id, group_message_id
-            FROM message_queue
-            WHERE recipient_device_id = ? AND delivered_at IS NULL AND expires_at > now()
-            ORDER BY created_at
+            SELECT q.message_id, q.sender_account_id, q.sender_device_id, q.ciphertext_type, q.ciphertext, q.created_at, q.group_id, q.group_message_id,
+                   sender.username AS sender_username
+            FROM message_queue q
+            JOIN accounts sender ON sender.id = q.sender_account_id
+            WHERE q.recipient_device_id = ? AND q.delivered_at IS NULL AND q.expires_at > now()
+            ORDER BY q.created_at
             LIMIT 100
             """,
             { rs ->
@@ -322,6 +324,7 @@ class JdbcE2eeRepository(private val dataSource: DataSource) : E2eeRepository {
                     createdAt = rs.getTimestamp("created_at").toInstant().toEpochMilli(),
                     groupId = rs.getObject("group_id", UUID::class.java)?.toString(),
                     groupMessageId = rs.getObject("group_message_id", UUID::class.java)?.toString(),
+                    senderUsername = rs.getString("sender_username"),
                 )
             },
             deviceId,

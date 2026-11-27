@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Card
@@ -54,22 +55,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.window.core.layout.WindowSizeClass
 import dev.securemessenger.data.GroupConversation
+import dev.securemessenger.data.local.DirectConversationEntity
 import dev.securemessenger.data.local.MessageEntity
 import dev.securemessenger.data.media.MediaKind
 import dev.securemessenger.shared.TokenResponse
 import dev.securemessenger.shared.UserResponse
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private fun pickMediaRequest(type: ActivityResultContracts.PickVisualMedia.VisualMediaType) =
     PickVisualMediaRequest.Builder().setMediaType(type).build()
 
 @Composable
-fun AdaptiveApp() {
+fun AdaptiveApp(notificationKey: String? = null, onNotificationHandled: () -> Unit = {}) {
     val authViewModel = hiltViewModel<AuthViewModel>()
     val chatsViewModel = hiltViewModel<ChatsViewModel>()
     val groupsViewModel = hiltViewModel<GroupsViewModel>()
@@ -130,10 +136,17 @@ fun AdaptiveApp() {
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     LaunchedEffect(session?.accountId) {
+        chatsViewModel.setAccount(session?.accountId)
         if (session != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
             notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+    LaunchedEffect(notificationKey, session?.accountId) {
+        if (notificationKey != null && session != null) {
+            chatsViewModel.openNotification(notificationKey)
+            onNotificationHandled()
         }
     }
 
@@ -155,6 +168,7 @@ fun AdaptiveApp() {
             session = session,
             searchResult = chatsState.searchResult,
             selectedChat = chatsState.selectedChat,
+            conversations = chatsState.conversations,
             draft = chatsState.draft,
             busy = chatsState.busy,
             error = chatsState.error,
@@ -219,6 +233,7 @@ fun HomeLayout(
     onDraftChange: (String) -> Unit,
     onLogout: () -> Unit,
     messages: List<MessageEntity> = emptyList(),
+    conversations: List<DirectConversationEntity> = emptyList(),
     onSend: (String) -> Unit = {},
     onOpenSafety: () -> Unit = {},
     groups: List<GroupConversation> = emptyList(),
@@ -249,6 +264,7 @@ fun HomeLayout(
                 username = session.username,
                 searchResult = searchResult,
                 selectedChat = selectedChat,
+                conversations = conversations,
                 busy = busy,
                 error = error,
                 onSearch = onSearch,
@@ -281,6 +297,7 @@ fun HomeLayout(
             username = session.username,
             searchResult = searchResult,
             selectedChat = null,
+            conversations = conversations,
             busy = busy,
             error = error,
             onSearch = onSearch,
@@ -320,6 +337,7 @@ private fun ChatListPane(
     onSelect: (UserResponse) -> Unit,
     onLogout: () -> Unit,
     groups: List<GroupConversation> = emptyList(),
+    conversations: List<DirectConversationEntity> = emptyList(),
     selectedGroup: GroupConversation? = null,
     groupError: String? = null,
     onSelectGroup: (GroupConversation) -> Unit = {},
@@ -362,20 +380,70 @@ private fun ChatListPane(
         }
         HorizontalDivider()
         LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("chat_list"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            selectedChat?.let { chat ->
-                item(key = "direct:${chat.accountId}") {
+            selectedChat?.takeIf { selected -> conversations.none { it.accountId == selected.accountId } }?.let { chat ->
+                item(key = "selected:${chat.accountId}") {
                     Card(Modifier.fillMaxWidth().clickable { onSelect(chat) }) {
                         Text("@${chat.username}", Modifier.padding(16.dp))
                     }
                 }
             }
-            if (selectedChat == null && groups.isEmpty()) {
+            items(conversations, key = { "direct:${it.accountId}" }) { conversation ->
+                DirectConversationCard(conversation, onSelect)
+            }
+            if (selectedChat == null && conversations.isEmpty() && groups.isEmpty()) {
                 item(key = "empty_direct") { Text("Чатов пока нет. Найдите пользователя по юзернейму.") }
             }
             item(key = "group_creation") {
                 GroupCreationSection(groups.isNotEmpty(), selectedGroup, onCreateGroup, groupError)
             }
             groupCards(groups, selectedGroup, onSelectGroup)
+        }
+    }
+}
+
+@Composable
+private fun DirectConversationCard(conversation: DirectConversationEntity, onSelect: (UserResponse) -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().clickable {
+            onSelect(UserResponse(conversation.accountId, conversation.username))
+        }.testTag("conversation_${conversation.accountId}"),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            ChatAvatar(conversation.username)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "@${conversation.username}",
+                        Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (conversation.lastCreatedAt > 0) {
+                        Text(
+                            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(conversation.lastCreatedAt)),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    val body = conversation.lastBody.ifBlank {
+                        if (conversation.lastCreatedAt == 0L) "Нет сообщений" else "Медиа"
+                    }
+                    Text(
+                        (if (conversation.lastOutgoing) "Вы: " else "") + body,
+                        Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (conversation.unreadCount > 0) {
+                        Badge { Text(conversation.unreadCount.toString()) }
+                    }
+                }
+            }
         }
     }
 }

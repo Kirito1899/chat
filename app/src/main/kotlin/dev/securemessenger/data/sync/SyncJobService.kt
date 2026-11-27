@@ -33,7 +33,8 @@ class SyncJobService : JobService() {
             try {
                 if (accounts.restore() != null) {
                     pendingMedia.resumePending()
-                    MessageNotifier.showMessages(this@SyncJobService, messages.sync())
+                    val newMessages = messages.sync()
+                    MessageNotifier.showMessages(this@SyncJobService, newMessages, messages.latestUnreadNotificationKey())
                 }
                 jobFinished(params, false)
             } catch (_: CancellationException) {
