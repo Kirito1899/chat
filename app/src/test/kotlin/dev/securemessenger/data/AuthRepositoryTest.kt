@@ -4,6 +4,7 @@ import dev.securemessenger.data.local.SessionStore
 import dev.securemessenger.data.remote.ApiException
 import dev.securemessenger.data.remote.MessengerApi
 import dev.securemessenger.shared.DeliveryResponse
+import dev.securemessenger.shared.LoginRequest
 import dev.securemessenger.shared.SendMessageRequest
 import dev.securemessenger.shared.TokenResponse
 import dev.securemessenger.shared.UserResponse
@@ -31,6 +32,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -65,6 +67,39 @@ class AuthRepositoryTest {
         val request = server.takeRequest()
         assertTrue(request.url.encodedPath.endsWith("/v1/auth/login"))
         assertFalse(request.url.queryParameterNames.any { "password" in it || "token" in it })
+    }
+
+    @Test
+    fun `login retries once with a fresh device id after a device conflict`() = runTest {
+        val initialDeviceId = sessions.deviceId.toString()
+        val freshDeviceId = UUID.randomUUID()
+        sessions.nextDeviceId = freshDeviceId
+        val tokens = tokens("access-new", "refresh-new").copy(deviceId = freshDeviceId.toString())
+        server.enqueue(jsonResponse("""{"code":"DEVICE_LIMIT"}""", 409))
+        server.enqueue(jsonResponse(json.encodeToString(tokens)))
+
+        val result = repository.login("user@example.com", "password-12345")
+
+        val first = json.decodeFromString(LoginRequest.serializer(), assertNotNull(server.takeRequest().body).utf8())
+        val second = json.decodeFromString(LoginRequest.serializer(), assertNotNull(server.takeRequest().body).utf8())
+        assertEquals(initialDeviceId, first.deviceId)
+        assertEquals(freshDeviceId.toString(), second.deviceId)
+        assertEquals(tokens, result)
+        assertEquals(tokens, sessions.stored)
+        assertEquals(1, sessions.resetCalls)
+    }
+
+    @Test
+    fun `login retries a device conflict only once`() = runTest {
+        server.enqueue(jsonResponse("""{"code":"DEVICE_LIMIT"}""", 409))
+        server.enqueue(jsonResponse("""{"code":"DEVICE_LIMIT"}""", 409))
+
+        val error = assertFailsWith<ApiException> { repository.login("user@example.com", "password-12345") }
+
+        assertEquals("DEVICE_LIMIT", error.code)
+        assertEquals(2, server.requestCount)
+        assertEquals(1, sessions.resetCalls)
+        assertNull(sessions.stored)
     }
 
     @Test
@@ -157,6 +192,8 @@ class AuthRepositoryTest {
 
         assertFailsWith<ApiException> { repository.login("user@example.com", "wrong-password-1") }
         assertEquals(existing, sessions.stored)
+        assertEquals(0, sessions.resetCalls)
+        assertEquals(1, server.requestCount)
     }
 
     @Test
@@ -188,7 +225,11 @@ class AuthRepositoryTest {
 
 private class FakeSessionStore : SessionStore {
     var stored: TokenResponse? = null
-    val deviceId: UUID = UUID.randomUUID()
+    var deviceId: UUID = UUID.randomUUID()
+        private set
+    var nextDeviceId: UUID = UUID.randomUUID()
+    var resetCalls: Int = 0
+        private set
 
     override suspend fun read(): TokenResponse? = stored
 
@@ -201,4 +242,11 @@ private class FakeSessionStore : SessionStore {
     }
 
     override suspend fun deviceId(): String = deviceId.toString()
+
+    override suspend fun resetDeviceId(): String {
+        resetCalls++
+        deviceId = nextDeviceId
+        nextDeviceId = UUID.randomUUID()
+        return deviceId.toString()
+    }
 }

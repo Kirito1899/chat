@@ -14,6 +14,7 @@ interface SessionStore {
     suspend fun save(session: TokenResponse)
     suspend fun clear()
     suspend fun deviceId(): String
+    suspend fun resetDeviceId(): String
 }
 
 class DataStoreSessionStore(
@@ -49,6 +50,10 @@ class DataStoreSessionStore(
 
     override suspend fun deviceId(): String {
         dataStore.data.first()[deviceKey]?.let { return it }
+        return resetDeviceId()
+    }
+
+    override suspend fun resetDeviceId(): String {
         val created = UUID.randomUUID().toString()
         dataStore.edit { it[deviceKey] = created }
         return created

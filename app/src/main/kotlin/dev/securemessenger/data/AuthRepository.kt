@@ -48,7 +48,12 @@ class AuthRepository(
     }
 
     override suspend fun login(email: String, password: String): TokenResponse {
-        val session = api.login(LoginRequest(email, password, sessions.deviceId()))
+        val session = try {
+            api.login(LoginRequest(email, password, sessions.deviceId()))
+        } catch (error: ApiException) {
+            if (error.code != "DEVICE_LIMIT") throw error
+            api.login(LoginRequest(email, password, sessions.resetDeviceId()))
+        }
         sessions.save(session)
         return session
     }
