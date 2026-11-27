@@ -51,6 +51,8 @@ class MessageNotifierTest {
             assertEquals(MainActivity.ACTION_OPEN_CONVERSATION, activity.intent.action)
             assertEquals(key, activity.intent.getStringExtra(MainActivity.EXTRA_NOTIFICATION_KEY))
         }
+        MessageNotifier.clearMessages(context)
+        AppVisibility.foreground = true
         MessageNotifier.showMessages(context, 1, UUID.randomUUID().toString())
         SystemClock.sleep(200)
         assertFalse(manager.activeNotifications.any {

@@ -34,7 +34,7 @@ object MessageNotifier {
     fun foregroundNotification(context: Context): Notification {
         createChannels(context)
         return NotificationCompat.Builder(context, SYNC_CHANNEL)
-            .setSmallIcon(R.drawable.ic_shield)
+            .setSmallIcon(R.drawable.ic_ami_notification)
             .setContentTitle("Синхронизация сообщений")
             .setContentText("Защищённое соединение")
             .setOngoing(true)
@@ -60,7 +60,7 @@ object MessageNotifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(context, MESSAGE_CHANNEL)
-            .setSmallIcon(R.drawable.ic_shield)
+            .setSmallIcon(R.drawable.ic_ami_notification)
             .setContentTitle("Новые зашифрованные сообщения")
             .setContentText("Получено: $count. Откройте приложение для просмотра")
             .setContentIntent(open)

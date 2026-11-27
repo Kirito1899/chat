@@ -3,6 +3,7 @@ package dev.securemessenger.ui
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -41,7 +42,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Stop
@@ -52,15 +52,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.window.core.layout.WindowSizeClass
+import dev.securemessenger.R
 import dev.securemessenger.data.GroupConversation
 import dev.securemessenger.data.local.DirectConversationEntity
 import dev.securemessenger.data.local.MessageEntity
@@ -69,7 +73,6 @@ import dev.securemessenger.shared.TokenResponse
 import dev.securemessenger.shared.UserResponse
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 private fun pickMediaRequest(type: ActivityResultContracts.PickVisualMedia.VisualMediaType) =
     PickVisualMediaRequest.Builder().setMediaType(type).build()
@@ -388,7 +391,7 @@ private fun ChatListPane(
                 }
             }
             items(conversations, key = { "direct:${it.accountId}" }) { conversation ->
-                DirectConversationCard(conversation, onSelect)
+                DirectConversationCard(conversation, selectedChat?.accountId == conversation.accountId, onSelect)
             }
             if (selectedChat == null && conversations.isEmpty() && groups.isEmpty()) {
                 item(key = "empty_direct") { Text("Чатов пока нет. Найдите пользователя по юзернейму.") }
@@ -402,13 +405,19 @@ private fun ChatListPane(
 }
 
 @Composable
-private fun DirectConversationCard(conversation: DirectConversationEntity, onSelect: (UserResponse) -> Unit) {
-    Card(
-        Modifier.fillMaxWidth().clickable {
-            onSelect(UserResponse(conversation.accountId, conversation.username))
-        }.testTag("conversation_${conversation.accountId}"),
+private fun DirectConversationCard(
+    conversation: DirectConversationEntity,
+    selected: Boolean,
+    onSelect: (UserResponse) -> Unit,
+) {
+    val locale = LocalLocale.current.platformLocale
+    Column(
+        Modifier.fillMaxWidth()
+            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent)
+            .clickable { onSelect(UserResponse(conversation.accountId, conversation.username)) }
+            .testTag("conversation_${conversation.accountId}"),
     ) {
-        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             ChatAvatar(conversation.username)
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -421,7 +430,7 @@ private fun DirectConversationCard(conversation: DirectConversationEntity, onSel
                     )
                     if (conversation.lastCreatedAt > 0) {
                         Text(
-                            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(conversation.lastCreatedAt)),
+                            SimpleDateFormat("HH:mm", locale).format(Date(conversation.lastCreatedAt)),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -445,6 +454,10 @@ private fun DirectConversationCard(conversation: DirectConversationEntity, onSel
                 }
             }
         }
+        HorizontalDivider(
+            Modifier.padding(start = 56.dp),
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+        )
     }
 }
 
@@ -572,11 +585,10 @@ internal fun Composer(
 private fun EmptyChat() {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                Icons.Default.Forum,
-                contentDescription = null,
-                modifier = Modifier.size(56.dp).padding(bottom = 12.dp),
-                tint = MaterialTheme.colorScheme.primary,
+            Image(
+                painterResource(R.drawable.ic_ami_foreground),
+                contentDescription = "Ami",
+                modifier = Modifier.size(72.dp).padding(bottom = 12.dp),
             )
             Text("Выберите чат или найдите пользователя", style = MaterialTheme.typography.bodyLarge)
         }

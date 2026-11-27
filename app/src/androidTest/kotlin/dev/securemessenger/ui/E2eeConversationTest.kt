@@ -112,7 +112,16 @@ class E2eeConversationTest {
     private fun sendAndAwaitSent(body: String) {
         fun latestText(tag: String): String? = compose.onAllNodesWithTag(tag).fetchSemanticsNodes()
             .firstOrNull()?.let { node ->
-                runCatching { node.config[SemanticsProperties.Text].joinToString("") { it.text } }.getOrNull()
+                val text = runCatching { node.config[SemanticsProperties.Text].joinToString("") { it.text } }.getOrNull()
+                val description = runCatching { node.config[SemanticsProperties.ContentDescription].joinToString("") }.getOrNull()
+                text?.takeIf { it.isNotEmpty() } ?: when (description) {
+                    "Ожидает отправки" -> "PENDING"
+                    "Отправлено" -> "SENT"
+                    "Доставлено" -> "DELIVERED"
+                    "Прочитано" -> "READ"
+                    "Не доставлено" -> "SKIPPED"
+                    else -> description
+                }
             }
         fun latestStatus(): String? = latestText("latest_outgoing_status")
         fun latestBody(): String? = latestText("latest_outgoing_body")

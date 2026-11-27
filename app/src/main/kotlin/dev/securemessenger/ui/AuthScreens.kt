@@ -1,5 +1,6 @@
 package dev.securemessenger.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,9 +22,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.Icon
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Shield
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,11 +32,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import dev.securemessenger.R
 
 @Composable
 fun AuthScreens(state: AuthUiState, viewModel: AuthViewModel) {
@@ -161,8 +161,13 @@ private fun AuthFrame(title: String, state: AuthUiState, content: @Composable ()
                 Modifier.size(72.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
+                Image(
+                    painterResource(R.drawable.ic_ami_foreground),
+                    contentDescription = "Ami",
+                    modifier = Modifier.size(64.dp),
+                )
             }
+            Text("Ami", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
             Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
             Text(
                 "Личные и групповые разговоры со сквозным шифрованием",

@@ -1,6 +1,7 @@
 package dev.securemessenger.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,8 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -28,6 +27,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
@@ -95,22 +95,29 @@ fun LazyListScope.groupCards(
     onSelect: (GroupConversation) -> Unit,
 ) {
     items(groups, key = { it.group.groupId }) { conversation ->
-        Card(
-            Modifier.fillMaxWidth().padding(bottom = 8.dp)
+        Column(
+            Modifier.fillMaxWidth()
+                .background(
+                    if (selectedGroup?.group?.groupId == conversation.group.groupId) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                    } else {
+                        Color.Transparent
+                    },
+                )
                 .testTag("group_item_${conversation.group.groupId}")
                 .clickable { onSelect(conversation) },
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         ) {
-            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 ChatAvatar(conversation.title)
                 Column(Modifier.padding(start = 12.dp)) {
                     Text(conversation.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("${conversation.group.members.size} участников", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (selectedGroup?.group?.groupId == conversation.group.groupId) {
-                        Text("Выбрана", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    }
                 }
             }
+            HorizontalDivider(
+                Modifier.padding(start = 56.dp),
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+            )
         }
     }
 }

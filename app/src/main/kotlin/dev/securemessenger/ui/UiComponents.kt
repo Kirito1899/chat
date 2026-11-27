@@ -51,8 +51,8 @@ fun ChatAvatar(label: String, modifier: Modifier = Modifier) {
 fun MessageBubble(message: MessageEntity, latestOutgoing: Boolean, senderName: String? = null) {
     val locale = LocalLocale.current.platformLocale
     val outgoing = message.outgoing
-    val container = if (outgoing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh
-    val content = if (outgoing) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+    val container = if (outgoing) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+    val content = if (outgoing) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
     val shape = RoundedCornerShape(
         topStart = 18.dp,
         topEnd = 18.dp,
@@ -88,7 +88,7 @@ fun MessageBubble(message: MessageEntity, latestOutgoing: Boolean, senderName: S
                     Text(
                         SimpleDateFormat("HH:mm", locale).format(Date(message.createdAt)),
                         style = MaterialTheme.typography.labelSmall,
-                        color = content.copy(alpha = 0.65f),
+                        color = content.copy(alpha = 0.75f),
                     )
                     if (outgoing) {
                         Icon(
@@ -98,15 +98,15 @@ fun MessageBubble(message: MessageEntity, latestOutgoing: Boolean, senderName: S
                                 "SENT" -> Icons.Default.Done
                                 else -> Icons.Default.DoneAll
                             },
-                            contentDescription = null,
-                            modifier = Modifier.size(13.dp),
-                            tint = content.copy(alpha = 0.7f),
-                        )
-                        Text(
-                            message.status,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = content.copy(alpha = 0.7f),
-                            modifier = Modifier.testTag(if (latestOutgoing) "latest_outgoing_status" else "message_status"),
+                            contentDescription = when (message.status) {
+                                "PENDING" -> "Ожидает отправки"
+                                "SKIPPED" -> "Не доставлено"
+                                "SENT" -> "Отправлено"
+                                "DELIVERED" -> "Доставлено"
+                                else -> "Прочитано"
+                            },
+                            modifier = Modifier.size(13.dp).testTag(if (latestOutgoing) "latest_outgoing_status" else "message_status"),
+                            tint = content.copy(alpha = 0.75f),
                         )
                     }
                 }
